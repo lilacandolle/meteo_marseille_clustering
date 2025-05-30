@@ -1,0 +1,1608 @@
+---
+title: "Clustering de données météo"
+output: html_clustering
+author: Lila Cassan (d'après Ruben Pressenda)
+---
+
+# Import des librairies
+
+```{r}
+suppressPackageStartupMessages(library(dendextend))
+suppressPackageStartupMessages(library(mclust))
+suppressPackageStartupMessages(library(viridis))
+suppressPackageStartupMessages(library(scales))
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(circular))
+suppressPackageStartupMessages(library(timetk))
+suppressPackageStartupMessages(library(rlang))
+suppressPackageStartupMessages(library(reshape2))
+suppressPackageStartupMessages(library(readr))
+library("maps")
+library("lubridate")
+library("openair")
+library("dplyr")
+library("broom") 
+library("readr")
+library("reshape2")
+library("stringr")
+library("ggplot2")
+library("zoo")
+library("beepr")
+library("readxl")
+library("gtable")
+library("RColorBrewer")
+library("plotrix")
+library("Orcs")
+library("rlang")
+library("timetk")
+library("paletteer")
+library("lubridate")
+library("dichromat") 
+library("lmodel2")
+library("circular")
+library("tidyverse")
+library("scales")
+library("foehnix")
+library("dendextend")
+library("ncdf4")
+library("viridis")
+library("stats")
+library("mclust")
+library("patchwork") # pour aligner les axes de ggplots
+
+```
+
+# Choix pour l'exécution du script
+
+```{r}
+# enregistrement des figures
+savefig = TRUE
+
+windows = FALSE
+
+# chemin d'enregistrement des figures
+if (windows) {
+  figpath = "E:\\_stageCO2\\figures\\clusteringmeteo"
+} else {
+figpath = "/Volumes/T7_Shield/_stageCO2/figures/clusteringmeteo"
+}
+```
+
+# Chargement des données ERA5
+
+```{r}
+if (windows) {
+  setwd("E:\\_stageCO2\\data\\ECMWF")
+} else {
+  setwd("/Volumes/T7_Shield/_stageCO2/data/ECMWF")
+}
+getwd()
+nc_windu <- nc_open("windu.nc")
+nc_windv <- nc_open("windv.nc")
+nc_t2m <- nc_open("temperature_2m.nc")
+nc_d2m <- nc_open("dewpoint_temperature.nc") # point de rosée pour calculer l'humidité relative
+nc_surfacepressure <- nc_open("surfacepressure.nc")
+nc_totalprecipitation <- nc_open("total_precipitation.nc")
+nc_radiation <- nc_open("surf_sol_rad_downwards.nc")
+nc_ablh <- nc_open("boundarylayerheight.nc")
+
+time <- ncvar_get(nc_t2m, "valid_time") 
+
+# Définir la date de début (1970) pour la conversion de l'heure en date
+start_date <- as.POSIXct("1970-01-01 00:00:00", tz = "UTC")
+date <- start_date + time
+
+# Définir la date limite (début 2025) car quand on télécharge les données pour l'année en cours, la date de fin diffère
+end_date <- as.POSIXct("2025-01-01 00:00:00", tz = "UTC")
+
+# Filtrer les données jusqu'à cette date
+valid_indices <- which(date <= end_date)
+
+date <- date[valid_indices]
+datejulian <- as.integer(trunc(julian.POSIXt(date)))
+time <- as.numeric(difftime(date, min(date), units = "days")) / 365.25 # en années depuis le début des mesures
+flag_dn <- case_when(
+  hour(date) %in% 0:4 ~ "night",
+  hour(date) %in% 12:16 ~ "day",
+  TRUE ~ NA_character_
+)
+winter_peak <- case_when(
+  hour(date) %in% 6:7 ~ TRUE,
+  TRUE ~ FALSE
+)
+
+month <- month(date)
+year <- year(date)
+t2m <- ncvar_get(nc_t2m, "t2m")[valid_indices]
+windu <- ncvar_get(nc_windu, "u10")[valid_indices]
+windv <- ncvar_get(nc_windv, "v10")[valid_indices]
+surfacepressure <- ncvar_get(nc_surfacepressure, "sp")[valid_indices] / 100 # hPa
+totalprecipitation <- ncvar_get(nc_totalprecipitation, "tp")[valid_indices]*1000 # mm
+d2m <- ncvar_get(nc_d2m, "d2m")[valid_indices]
+ssrd <- ncvar_get(nc_radiation, "ssrd")[valid_indices]
+ablh <- ncvar_get(nc_ablh, "blh")[valid_indices]
+
+dataset <- data.frame(
+  date = date,
+  datejulian = datejulian,
+  time = time,
+  month = month,
+  year = year,
+  flag_dn = flag_dn,
+  winter_peak = winter_peak,
+  windu = windu,
+  windv = windv,
+  t2m = t2m,
+  d2m = d2m,
+  surfacepressure = surfacepressure,
+  totalprecipitation = totalprecipitation,
+  ssrd = ssrd,
+  ablh = ablh
+) 
+rm(date, t2m, windu, windv, surfacepressure, totalprecipitation, d2m, ssrd, ablh, flag_dn, month, time, winter_peak)
+rm(nc_windu, nc_windv, nc_t2m, nc_surfacepressure, nc_totalprecipitation, nc_d2m, nc_radiation, nc_ablh)
+
+# on convertit le vent pour avoir speed et direction
+ddff <- uv2ddff(dataset$windu, dataset$windv)
+dataset$wind_speed <- ddff$ff
+dataset$wind_dir <- ddff$dd
+rm(ddff)
+
+# on calcule l'humidité relative en utilisant la formule de Magnus
+dataset$relative_humidity <- 100 * exp((17.625 * dataset$d2m) / (243.04 + dataset$d2m)) / exp((17.625 * dataset$t2m) / (243.04 + dataset$t2m))
+
+# conversion en degrés celsius
+dataset$t2m <- dataset$t2m - 273.15
+dataset$d2m <- dataset$d2m - 273.15
+
+# on ajoute une colonne pour la saison
+dataset <- dataset %>%
+  mutate(saison = case_when(
+    month == 12 | month == 1 | month == 2 ~ "DJF",
+    month == 3 | month == 4 | month == 5 ~ "MAM",
+    month == 6 | month == 7 | month == 8 ~ "JJA",
+    month == 9 | month == 10 | month == 11 ~ "SON"
+  ))
+
+dataset$saison <- factor(dataset$saison, levels = c("DJF", "MAM", "JJA", "SON"))
+
+# couleurs pour plot en fonction des saisons
+saison_colors <- c("DJF" = "deepskyblue3",    
+                   "MAM" = "springgreen4",
+                   "JJA" = "gold",     
+                   "SON" = "orangered1")
+
+#on plot les précipitations pour 2018 par mois(moyenne)
+
+dataset %>%
+  filter(year == 2018) %>%
+  group_by(month) %>%
+  summarise(monthly_precipitation = sum(totalprecipitation, na.rm = TRUE)) %>%
+  ggplot(aes(x = month, y = monthly_precipitation)) +
+  geom_bar(stat = "identity", fill = "darkblue") +
+  scale_x_continuous(breaks = 1:12, labels = month.abb) +
+  labs(title = "Monthly precipitation in 2018 by month Longchamp, ERA5", x = "Month", y = "Total precipitation (mm)") +
+  theme_minimal()
+
+
+
+head(dataset)
+```
+
+```{r}
+wind <- windRose(dataset, ws = "wind_speed", wd = "wind_dir", type = "saison", paddle = F, border = T,
+         key.header = "MAR", key.footer = "Vitesse du vent (m/s)", 
+         key.position = "bottom", key.width = 0.5, 
+         key.height = 0.5, key.size = 1.5, key.text.size = 1.5, 
+         key.text.angle = 0, key.text.color = "black", key.text.font = 2, 
+         key.text.family = "sans", key.text.lineheight = 1.2,
+         breaks = c(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20),
+         )
+```
+
+## Cycle diurne de la BLH par saison pour toutes les années
+
+```{r}
+dataset$hour <- hour(dataset$date)
+cycle_diurne_meteo <- dataset %>%
+  group_by(saison, hour) %>%
+  summarise(mean_blh = mean(ablh, na.rm = TRUE),
+            mean_ws = mean(wind_speed, na.rm = TRUE),
+            mean_t2m = mean(t2m, na.rm = TRUE),
+            mean_ssrd = mean(ssrd, na.rm = TRUE),
+            mean_sp = mean(surfacepressure, na.rm = TRUE),
+            mean_rh = mean(relative_humidity, na.rm = TRUE),
+            .groups = "drop"
+            )
+# Liste des variables et des titres
+vars_to_plot <- list(
+  "mean_blh" = "Cycle diurne de la BLH par saison",
+  "mean_ws" = "Cycle diurne de la vitesse du vent par saison",
+  "mean_t2m" = "Cycle diurne de la température à 2m par saison",
+  "mean_ssrd" = "Cycle diurne du rayonnement solaire par saison",
+  "mean_sp" = "Cycle diurne de la pression à la surface par saison",
+  "mean_rh" = "Cycle diurne de l'humidité relative par saison"
+)
+
+# Boucle pour faire les plots
+for (varname in names(vars_to_plot)) {
+  ggplot(cycle_diurne_meteo, aes_string(x = "hour", y = varname, color = "saison")) +
+    geom_line() +
+    scale_color_manual(values = saison_colors) +
+    labs(title = vars_to_plot[[varname]],
+         x = "Heure",
+         y = "Valeur moyenne",
+         color = "Saison") +
+    theme_minimal() -> p
+
+  print(p)
+}
+```
+
+# TheilSen (ne pas exécuter)
+
+```{r}
+theilT <- TheilSen(
+  dataset,
+  pollutant = "t2m",
+  deseason = TRUE,
+  type = "default",
+  avg.time = "month",
+  statistic = "mean",
+  percentile = NA,
+  data.thresh = 0,
+  alpha = 0.05,
+  dec.place = 2,
+  xlab = "year",
+  lab.frac = 0.99,
+  lab.cex = 0.8,
+  x.relation = "same",
+  y.relation = "same",
+  data.col = "cornflowerblue",
+  trend = list(lty = c(1, 5), lwd = c(2, 1), col = c("red", "red")),
+  text.col = "darkgreen",
+  slope.text = NULL,
+  cols = NULL,
+  shade = "grey95",
+  auto.text = TRUE,
+  autocor = FALSE,
+  slope.percent = FALSE,
+  date.breaks = 7,
+  date.format = NULL,
+  plot = TRUE,
+  silent = FALSE
+)
+
+if (savefig) {
+  png(file.path(figpath, "desaisonnalisation", "t2m_trend_theilsen.png"), width = 5000, height = 3000, res = 500)
+  print(theilT)  # Pour forcer l'affichage de l'objet openair dans le fichier
+  dev.off()
+}
+
+```
+
+## Retrait de la tendance à partir du growth rate de TheilSen
+
+```{r}
+date_pivot2 <- median(dataset$datejulian, na.rm = TRUE)
+date_pivot <- as.integer(trunc(julian.POSIXt("2022-01-01 00:00:00"))) ## à modifier pour prendre la date médiane ????
+
+growth <- theilT[["data"]][["res2"]][["slope"]] 
+
+dataset$t2m_detrend <- rep(NA)
+dataset$t2m_detrend <- (dataset$t2m + growth / 365 * (date_pivot - dataset$datejulian))
+dataset$t2m_detrend2 <- (dataset$t2m + growth / 365 * (date_pivot2 - dataset$datejulian))
+print(colnames(dataset))
+```
+
+# Désaisonnalisation
+
+## Fonction pour la régression
+
+```{r}
+#' Fonction pour effectuer la régression et calculer les anomalies
+#' @param data Données à traiter
+#' @param var Variable à désaisonnaliser
+#' @param trend Indique si la tendance doit être incluse dans la régression. Par défaut, TRUE.
+#' 
+#' @return Liste contenant les données désaisonnalisées (deux nouvelles colonnes) et le modèle de régression
+fit_regression <- function(data, var, trend = TRUE) {
+  if (!trend) {
+    formula <- as.formula(paste(var, "~ sin(2 * pi * time) + cos(2 * pi * time) +",
+                                "sin(4 * pi * time) + cos(4 * pi * time) +",
+                                "sin(6 * pi * time) + cos(6 * pi * time) +",
+                                "sin(8 * pi * time) + cos(8 * pi * time)"))
+  } else {
+    formula <- as.formula(paste(var, "~ 1 + time +",
+                                "sin(2 * pi * time) + cos(2 * pi * time) +",
+                                "sin(4 * pi * time) + cos(4 * pi * time) +",
+                                "sin(6 * pi * time) + cos(6 * pi * time) +",
+                                "sin(8 * pi * time) + cos(8 * pi * time)"))
+  }
+  
+  # Ajustement du modèle de régression
+  model <- lm(formula, data = data)
+  
+  nom <- paste0(var, "_modeled")
+  nomp <- paste0(var, "_ano")
+  
+  # Retourner les données désaisonnalisées
+  data[[nom]] <- predict(model, newdata = data)
+  data[[nomp]] <- data[[var]] - data[[nom]]
+  
+  return(list(data = data, model = model))
+}
+```
+
+## Application aux données
+
+```{r}
+dataset <- fit_regression(dataset, "t2m")$data
+modelt2m <- fit_regression(dataset, "t2m")$model
+
+dataset <- fit_regression(dataset, "surfacepressure")$data
+modelsp <- fit_regression(dataset, "surfacepressure")$model
+
+dataset <- fit_regression(dataset, "relative_humidity")$data
+modelrh <- fit_regression(dataset, "relative_humidity")$model
+
+dataset<- fit_regression(dataset, "ssrd")$data
+modelssrd <- fit_regression(dataset, "ssrd")$model
+```
+
+## Plot
+
+```{r}
+# Sélection des dates pour les plots
+dataset_filtered <- dataset %>% 
+  filter(year(date) <= 2018)
+
+# Température
+ggplot(dataset_filtered, aes(x = date, y = t2m)) +
+  geom_point(color = "blue") +  # Afficher les points des données
+  geom_line(aes(y = modelt2m$coefficients[1] + modelt2m$coefficients[2] * time), color = "black") +  # Afficher la courbe de régression
+  geom_line(aes(y = t2m_modeled), color = "red") +  # Afficher la courbe de régression
+  labs(title = "Température à 2m et cycle saisonnier", x = "Temps (années)", y = "Température 2m (°C)") +
+  theme_minimal()
+
+if (savefig) {
+  ggsave(file.path(figpath, "desaisonnalisation", "t2m_cycle_saisonnier.png"), bg = 'white', width = 20, height = 12)
+}
+
+ggplot(dataset_filtered, aes(x = date, y = t2m_ano)) +
+  geom_point(color = 'blue') +
+  labs(title = "Anomalies", x = "Temps (années)", y = "Anomalies (Température - Tendance saisonnière)") +
+  theme_minimal()
+
+if (savefig) {
+  ggsave(file.path(figpath, "desaisonnalisation", "t2m_ano.png"), bg = 'white', width = 20, height = 12)
+}
+
+# Pression
+ggplot(dataset_filtered, aes(x = date, y = surfacepressure)) +
+  geom_point(color = "blue") +  # Afficher les points des données
+  geom_line(aes(y = surfacepressure_modeled), color = "red") +  # Afficher la courbe de régression
+  labs(title = "Pression à la surface et tendance saisonnière", x = "Temps (années)", y = "Pression à la surface (hPa)") +
+  theme_minimal()
+
+if (savefig) {
+  ggsave(file.path(figpath, "desaisonnalisation", "sp_cycle_saisonnier.png"), bg = 'white', width = 20, height = 12)
+}
+
+ggplot(dataset_filtered, aes(x = date, y = surfacepressure_ano)) +
+  geom_point(color = 'blue') +
+  labs(title = "Anomalies", x = "Temps (années)", y = "Anomalies (Pression - Tendance saisonnière)") +
+  theme_minimal()
+
+if (savefig) {
+  ggsave(file.path(figpath, "desaisonnalisation","sp_ano.png"), bg = 'white', width = 20, height = 12)
+}
+
+ggplot(dataset_filtered, aes(x = date, y = ssrd)) +
+  geom_point(color = "blue") +  # Afficher les points des données
+  geom_line(aes(y = ssrd_modeled), color = "red") +  # Afficher la courbe de régression
+  labs(title = "Rayonnement solaire et tendance saisonnière", x = "Temps (années)", y = "Rayonnement solaire (W/m²)") +
+  theme_minimal()
+
+if (savefig) {
+  ggsave(file.path(figpath, "desaisonnalisation", "ssrd_cycle_saisonnier.png"), bg = 'white', width = 20, height = 12)
+}
+
+ggplot(dataset_filtered, aes(x = date, y = ssrd_ano)) +
+  geom_point(color = 'blue') +
+  labs(title = "Anomalies", x = "Temps (années)", y = "Anomalies (Rayonnement solaire - Tendance saisonnière)") +
+  theme_minimal()
+
+if (savefig) {
+  ggsave(file.path(figpath, "desaisonnalisation", "ssrd_ano.png"), bg = 'white', width = 20, height = 12)
+}
+
+
+rm(dataset_filtered)
+```
+
+```{r}
+rm(modelt2m, modelsp, modelrh, modelssrd)
+print(colnames(dataset))
+```
+
+# Données par jour
+
+## Moyenne sur le jour et la nuit
+
+```{r}
+dataset_min <- dataset %>%
+  filter(!is.na(flag_dn)) %>%
+  group_by(date = as.Date(date), flag_dn) %>%
+  summarize(
+    windu = mean(windu, na.rm = TRUE),
+    windv = mean(windv, na.rm = TRUE),
+    t2m = mean(t2m, na.rm = TRUE),
+    t2m_ano = mean(t2m_ano, na.rm = TRUE),
+    surfacepressure = mean(surfacepressure, na.rm = TRUE),
+    surfacepressure_ano = mean(surfacepressure_ano, na.rm = TRUE),
+    relative_humidity = mean(relative_humidity, na.rm = TRUE),
+    relative_humidity_ano = mean(relative_humidity_ano, na.rm = TRUE),
+    ssrd = mean(ssrd, na.rm = TRUE),
+    ssrd_ano = mean(ssrd_ano, na.rm = TRUE),
+    totalprecipitation = sum(totalprecipitation, na.rm = TRUE),
+    ws = mean(wind_speed, na.rm = TRUE),
+    wd = mean(circular(wind_dir, units = "degrees", type = "angles"), na.rm = TRUE) %% 360,
+    saison = first(saison),
+    .groups = "drop"
+  ) %>%
+  pivot_wider(
+    names_from = flag_dn,
+    values_from = c(windu, windv, t2m, t2m_ano, surfacepressure, surfacepressure_ano, relative_humidity, relative_humidity_ano, ssrd, ssrd_ano, totalprecipitation, ws, wd),
+    names_prefix = ""
+  ) %>%
+  arrange(date)
+
+dataset_min$log10tp_day <- dataset_min$totalprecipitation_day
+dataset_min$log10tp_day[dataset_min$totalprecipitation_day == 0] <- 0.01
+dataset_min$log10tp_day <- log10(dataset_min$log10tp_day)
+
+dataset_min$log10tp_night <- dataset_min$totalprecipitation_night
+dataset_min$log10tp_night[dataset_min$totalprecipitation_night == 0] <- 0.01
+dataset_min$log10tp_night <- log10(dataset_min$log10tp_night)
+
+```
+
+## Moyenne par jour
+
+```{r}
+dataset_day <- dataset %>%
+  group_by(date = as.Date(date)) %>%
+  summarize(
+    windu = mean(windu, na.rm = TRUE),
+    windv = mean(windv, na.rm = TRUE),
+    t2m = mean(t2m, na.rm = TRUE),
+    t2m_ano = mean(t2m_ano, na.rm = TRUE),
+    surfacepressure = mean(surfacepressure, na.rm = TRUE),
+    surfacepressure_ano = mean(surfacepressure_ano, na.rm = TRUE),
+    relative_humidity = mean(relative_humidity, na.rm = TRUE),
+    relative_humidity_ano = mean(relative_humidity_ano, na.rm = TRUE),
+    ssrd = mean(ssrd, na.rm = TRUE),
+    ssrd_ano = mean(ssrd_ano, na.rm = TRUE),
+    totalprecipitation = sum(totalprecipitation, na.rm = TRUE),
+    ws = mean(wind_speed, na.rm = TRUE),
+    wd = mean(circular(wind_dir, units = "degrees", type = "angles"), na.rm = TRUE) %% 360,
+    .groups = "drop"
+  ) %>%
+  arrange(date)
+
+# on remplace les jours secs par 0.01 mm puis on prend le log10 (Hodgson et Philipps)
+dataset_day$log10tp <- dataset_day$totalprecipitation
+dataset_day$log10tp[dataset_day$totalprecipitation == 0] <- 0.01
+dataset_day$log10tp <- log10(dataset_day$log10tp)
+```
+
+## Fusion
+
+```{r}
+mean_dayanddn <- left_join(dataset_day, dataset_min, by = "date")
+rm(dataset_day, dataset_min)
+head(mean_dayanddn)
+```
+
+# Clustering hiérarchique
+
+## Fonction pour les plots
+
+```{r}
+#' Plot clustering results. Attention, figpath doit etre défini dans l'environnement global. Version sans les cluster counts
+#' 
+#' @param data Data frame containing the data
+#' @param clcolname Name of the column containing the cluster number
+#' @param sub_dir Subdirectory where to save the plots
+#' @param nom Name of the clustering method
+#' @param windu Name of the column containing the u component of the wind
+#' @param windv Name of the column containing the v component of the wind
+#' @param vars Names of the columns containing the variables to plot
+#' @param varnames Names of the variables to plot
+#' @param savefig Logical indicating whether to save the plots
+#' 
+#' @return NULL
+#' 
+#' @example plot_clustering_results(mean_dayanddn, 'gmm_cluster', 'GMMboxplots_roses', 'GMM')
+old_plot_clustering_results <- function(data, clcolname, sub_dir, nom, windu = windu, windv = windv,
+                                    vars = c('t2m_ano', 'relative_humidity_ano', 'surfacepressure_ano', 'ssrd_ano', 'windu', 'windv', 'wd', 'ws'),
+                                    varnames = c("Anomalies de température_a_2m", "Anomalies de humidité_relative", "Anomalies de Surface_pressure", "Anomalies de Solar_surface_radiation_downwards", 'vent_u', 'vent_v', 'wind dir', 'wind speed'),
+                                    savefig = TRUE) {
+  
+  # Boxplots
+  for (i in 1:length(vars)) {
+    plot_box <- ggplot(data, aes(x = !!sym(clcolname), y = !!sym(vars[i]), fill = as.factor(!!sym(clcolname)))) +
+      geom_boxplot() +
+      labs(title = paste(varnames[i], "par", clcolname), 
+           x = clcolname, 
+           y = varnames[i]) +
+      theme_minimal() +
+      scale_fill_viridis_d()
+    
+    # Afficher le plot à l'écran
+    print(plot_box)
+    
+    # Sauvegarder le plot si savefig est TRUE
+    if (savefig) {
+      ggsave(file.path(figpath, sub_dir, paste("boxplot_ano_", varnames[i], "_clustering_", nom, ".png", sep = '')), 
+             width = 10, height = 6, bg = "white")
+    }
+  }
+  
+  # Wind rose
+  plot_rose <- ggplot(data, aes(x = !!sym("wd"), y = !!sym("ws"), color = as.factor(!!sym(clcolname)))) +
+    geom_point() +
+    coord_polar(start = 0) +  
+    scale_x_continuous(limits = c(0, 360), breaks = seq(0, 360, by = 45), labels = c("N", "NE", "E", "SE", "S", "SO", "O", "NO", "N")) +
+    labs(x = "Direction", y = "Vitesse du vent", color = "Cluster") +
+    theme_minimal() +
+    facet_wrap(as.formula(paste("~", clcolname))) +
+    scale_color_viridis_d()
+  
+  # Afficher le wind rose à l'écran
+  print(plot_rose)
+  
+  # Sauvegarder le wind rose si savefig est TRUE
+  if (savefig) {
+    ggsave(file.path(figpath, sub_dir, paste(nom, "_rose_par_cluster.png", sep = '')), 
+           width = 10, height = 6, bg = "white")
+  }
+  cluster_count <- table(data[[clcolname]])
+
+  print(cluster_count)
+}
+
+```
+
+test de la fonction avec les counts
+
+```{r}
+#' Plot clustering results. Attention, figpath doit etre défini dans l'environnement global.
+#' 
+#' @param data Data frame containing the data
+#' @param clcolname Name of the column containing the cluster number
+#' @param sub_dir Subdirectory where to save the plots
+#' @param nom Name of the clustering method
+#' @param windu Name of the column containing the u component of the wind
+#' @param windv Name of the column containing the v component of the wind
+#' @param vars Names of the columns containing the variables to plot
+#' @param varnames Names of the variables to plot
+#' @param savefig Logical indicating whether to save the plots
+#' 
+#' @return NULL
+#' 
+#' @example plot_clustering_results(mean_dayanddn, 'gmm_cluster', 'GMMboxplots_roses', 'GMM')
+plot_clustering_results <- function(data, clcolname, sub_dir, nom, windu = windu, windv = windv,
+                                    vars = c('t2m_ano', 'relative_humidity_ano', 'surfacepressure_ano', 'ssrd_ano', 'windu', 'windv', 'wd', 'ws', 'totalprecipitation'),
+                                    varnames = c("Anomalies de température_a_2m", "Anomalies de humidité_relative", "Anomalies de Surface_pressure", "Anomalies de Solar_surface_radiation_downwards", 'vent_u', 'vent_v', 'wind dir', 'wind speed', 'Précipitations totales'),
+                                    savefig = TRUE) {
+  
+  # Boxplots
+  cluster_count <- as.data.frame(table(data[[clcolname]]))
+names(cluster_count) <- c("cluster", "count")
+cluster_count$label <- paste0("Cluster ", cluster_count$cluster, "\n(N=", cluster_count$count, ")")
+data$cluster_label <- factor(data[[clcolname]], 
+                             levels = cluster_count$cluster, 
+                             labels = cluster_count$label)
+  for (i in 1:length(vars)) {
+    plot_box <- ggplot(data, aes(x = cluster_label, y = !!sym(vars[i]), fill = as.factor(!!sym(clcolname)))) +
+      geom_boxplot() +
+      labs(title = paste(varnames[i], "par", clcolname), 
+           x = clcolname, 
+           y = varnames[i],
+           fill = "Cluster") +
+      theme_minimal() +
+      scale_fill_viridis_d()
+    
+    # Afficher le plot à l'écran
+    print(plot_box)
+    
+    # Sauvegarder le plot si savefig est TRUE
+    if (savefig) {
+      ggsave(file.path(figpath, sub_dir, paste("boxplot_ano_", varnames[i], "_clustering_", nom, ".png", sep = '')), 
+             width = 10, height = 6, bg = "white")
+    }
+  }
+  
+  # Wind rose
+  plot_rose <- ggplot(data, aes(x = !!sym("wd"), y = !!sym("ws"), color = as.factor(!!sym(clcolname)))) +
+    geom_point() +
+    coord_polar(start = 0) +  
+    scale_x_continuous(limits = c(0, 360), breaks = seq(0, 360, by = 45), labels = c("N", "NE", "E", "SE", "S", "SO", "O", "NO", "N")) +
+    labs(x = "Direction", y = "Vitesse du vent", color = "Cluster") +
+    theme_minimal() +
+    facet_wrap(as.formula(paste("~", clcolname))) +
+    scale_color_viridis_d()
+  
+  # Afficher le wind rose à l'écran
+  print(plot_rose)
+  
+  # Sauvegarder le wind rose si savefig est TRUE
+  if (savefig) {
+    ggsave(file.path(figpath, sub_dir, paste(nom, "_rose_par_cluster.png", sep = '')), 
+           width = 10, height = 6, bg = "white")
+  }
+  cluster_count <- table(data[[clcolname]])
+
+  print(cluster_count)
+}
+
+```
+
+## Préparation des données pour le clustering
+
+### Centrer réduire
+
+```{r}
+## Préparation des données
+data_ch_unscaled <- data.frame(
+                      date=mean_dayanddn$date,
+                      windu = mean_dayanddn$windu,
+                      windv = mean_dayanddn$windv,
+                      t2m_ano = mean_dayanddn$t2m_ano,
+                      surfacepressure_ano = mean_dayanddn$surfacepressure_ano,
+                      log10tp = mean_dayanddn$log10tp,
+                      #totalprecipitation = mean_dayanddn$totalprecipitation, # ajouter une ACP et log ? pour l'inclure
+                      
+                      relative_humidity_ano = mean_dayanddn$relative_humidity_ano,
+                      ssrd_ano = mean_dayanddn$ssrd_ano
+                      )
+
+# Centrer et réduire les données sauf la colonne date
+data_ch <- data.frame(data_ch_unscaled %>% select(-date) %>% scale(center = TRUE, scale = TRUE))
+
+# Remettre la date
+data_ch$date <- data_ch_unscaled$date
+```
+
+### ACP
+
+```{r}
+# ACP
+data_ch_acp <- data.frame(data_ch_unscaled %>% select(-date))
+acp <- prcomp(data_ch_acp, scale = TRUE, center = TRUE)
+summary(acp)
+plot(acp)
+
+data_acp <- data.frame(acp$x[, 1:5])
+data_acp$date <- data_ch_unscaled$date
+
+#dataset acp pondéré par sqrt variance exmpliquée
+pond_acp <- data.frame(acp$x[, 1:5] * sqrt(acp$sdev[1:5]))
+pond_acp$date <- data_ch_unscaled$date
+```
+
+```{r}
+data_long <- data_acp %>%
+  filter(year(date) == 2018) %>%
+  pivot_longer(cols = c(PC1, PC2, PC3), names_to = "composante", values_to = "valeur")
+
+# Tracer les 3 courbes
+ggplot(data_long, aes(x = date, y = valeur, color = composante)) +
+  geom_line() +
+  theme_minimal() +
+  labs(title = "Composantes principales",
+       x = "Date",
+       y = "Valeur",
+       color = "Composante")
+rm(data_long)
+
+if (savefig) {
+    ggsave(file.path(figpath, 'ACP', "timeseriesPCA.png"),
+           width = 10, height = 6, bg = "white")
+}
+```
+
+### Daynight et ACP
+
+```{r}
+## Préparation des données
+daynight_unscaled <- data.frame(
+                      date=mean_dayanddn$date,
+                      windu_day = mean_dayanddn$windu_day,
+                      windu_night = mean_dayanddn$windu_night,
+                      windv_day = mean_dayanddn$windv_day,
+                      windv_night = mean_dayanddn$windv_night,
+                      t2m_ano_day = mean_dayanddn$t2m_ano_day,
+                      t2m_ano_night = mean_dayanddn$t2m_ano_night,
+                      surfacepressure_ano_day = mean_dayanddn$surfacepressure_ano_day,
+                      surfacepressure_ano_night = mean_dayanddn$surfacepressure_ano_night,
+                      #totalprecipitation = mean_dayanddn$totalprecipitation, # ajouter une ACP et log ? pour l'inclure
+                      relative_humidity_ano_day = mean_dayanddn$relative_humidity_ano_day,
+                      relative_humidity_ano_night = mean_dayanddn$relative_humidity_ano_night,
+                      ssrd_ano_day = mean_dayanddn$ssrd_ano_day,
+                      ssrd_ano_night = mean_dayanddn$ssrd_ano_night
+                      )
+
+# Centrer et réduire les données sauf la colonne date
+daynight_scaled <- data.frame(daynight_unscaled %>% select(-date) %>% scale(center = TRUE, scale = TRUE))
+
+# Remettre la date
+daynight_scaled$date <- daynight_unscaled$date
+daynight_scaled <- na.omit(daynight_scaled)
+daynight_unscaled <- na.omit(daynight_unscaled)
+
+# ACP
+daynight_acp <- data.frame(daynight_unscaled %>% select(-date))
+acp <- prcomp(daynight_acp, scale = TRUE, center = TRUE)
+summary(acp)
+plot(acp)
+
+daynight_acp <- data.frame(acp$x[, 1:5])
+daynight_acp$date <- daynight_unscaled$date
+```
+
+## Par liaison complète sans ACP
+
+```{r}
+## Clustering
+distance_mat <- dist(data_ch,"euclidian")
+hc <- hclust(distance_mat)
+
+# Plot les distances auxquelles sont aggrégés les clusters
+height_data <- data.frame(
+  Iteration = 1:length(hc$height),  # Les itérations
+  Hauteur = hc$height                # Les hauteurs des clusters à chaque itération
+)
+ggplot(height_data, aes(x = Iteration, y = Hauteur)) +
+  geom_line(color = "darkslateblue") +  # Trace la ligne
+  labs(title = "Distance d'aggrégation", x = "Itération", y = "Hauteur") +
+  theme_minimal()
+
+if (savefig) {
+  ggsave(file.path(figpath, "dendrogrammes","dist_complete_CAH_without_PCA.png"), width = 10, height = 6, bg = "white")
+}
+
+b<-cutree(hc, k = 6) # k le nombre de clusters souhaités
+
+suppressPackageStartupMessages(library(dendextend))
+avg_dend_obj1 <- as.dendrogram(hc)
+ordered_clusters <- b[order.dendrogram(avg_dend_obj1)]
+
+# Colorier les branches du dendrogramme selon les groupes formés par cutree
+avg_col_dend1 <- color_branches(avg_dend_obj1, clusters = ordered_clusters)
+#suppress labels
+avg_col_dend1 <- set_labels(avg_col_dend1, k = 6, h = 20, labels = NA)
+#avg_col_dend1 <- color_branches(avg_dend_obj1, k=6, h = 35)
+plot(avg_col_dend1, cex.axis = 3, xaxt = "n")
+
+if (savefig) {
+  png(file.path(figpath, "dendrogrammes", "complete_CAH_without_PCA.png"), width = 4000, height = 3000, res = 300)
+  plot(avg_col_dend1, cex.axis = 3, xaxt = "n")
+  dev.off()  
+}
+mean_dayanddn$cluster <- b
+rm(b)
+```
+
+### Plots
+
+```{r}
+plot_clustering_results(mean_dayanddn, 'cluster', 'complete_CAH_without_PCA', 'completeCH_withoutPCA')
+```
+
+```{r}
+ggplot(mean_dayanddn, aes(x = wd, y = ws, color = as.factor(saison))) +
+    geom_point(size = 0.5) +
+    coord_polar(start = 0) +  
+    scale_x_continuous(limits = c(0, 360), breaks = seq(0, 360, by = 45), labels = c("N", "NE", "E", "SE", "S", "SO", "O", "NO", "N")) +
+    labs(x = "Direction", y = "Vitesse du vent", color = "Saison") +
+    theme_minimal() +
+    scale_color_manual(values = saison_colors) +
+    facet_wrap(~ cluster)
+
+sub_dir = 'complete_CAH_without_PCA'
+
+if (savefig) {
+    ggsave(file.path(figpath, sub_dir, "roses_saison.png"),
+           width = 10, height = 6, bg = "white")
+}
+```
+
+## Complete CAH with ACP
+
+```{r}
+## Clustering
+distance_mat2 <- dist(data_acp,"euclidian")
+hc <- hclust(distance_mat2)
+
+# Plot les distances auxquelles sont aggrégés les clusters
+height_data <- data.frame(
+  Iteration = 1:length(hc$height),  # Les itérations
+  Hauteur = hc$height                # Les hauteurs des clusters à chaque itération
+)
+ggplot(height_data, aes(x = Iteration, y = Hauteur)) +
+  geom_line(color = "darkslateblue") +  # Trace la ligne
+  labs(title = "Distance d'aggrégation", x = "Itération", y = "Hauteur") +
+  theme_minimal()
+
+if (savefig) {
+  ggsave(file.path(figpath, "dendrogrammes","dist_complete_CAH_with_PCA.png"), width = 10, height = 6, bg = "white")
+}
+
+b<-cutree(hc, k = 6) # k le nombre de clusters souhaités
+
+suppressPackageStartupMessages(library(dendextend))
+avg_dend_obj1 <- as.dendrogram(hc)
+ordered_clusters <- b[order.dendrogram(avg_dend_obj1)]
+
+# Colorier les branches du dendrogramme selon les groupes formés par cutree
+avg_col_dend1 <- color_branches(avg_dend_obj1, clusters = ordered_clusters)
+#suppress labels
+avg_col_dend1 <- set_labels(avg_col_dend1, k = 6, h = 20, labels = NA)
+#avg_col_dend1 <- color_branches(avg_dend_obj1, k=6, h = 35)
+plot(avg_col_dend1, cex.axis = 3, xaxt = "n")
+
+if (savefig) {
+  png(file.path(figpath, "dendrogrammes","complete_CAH_with_PCA.png"), width = 4000, height = 3000, res = 300)
+  plot(avg_col_dend1, cex.axis = 3, xaxt = "n")
+  dev.off()  
+}
+mean_dayanddn$cluster_acp <- b
+```
+
+### Plots
+
+```{r}
+plot_clustering_results(mean_dayanddn, 'cluster_acp', 'complete_CAH_with_PCA', 'completeCH_with_PCA')
+```
+
+#### Par saison
+
+```{r}
+# Créer un histogramme pour chaque cluster montrant le nombre de jours par saison
+ggplot(mean_dayanddn, aes(x = saison, fill = saison)) +
+  geom_bar(stat = "count") +
+  facet_grid(cluster_acp ~ ., scales = "free_y") +  # Facet par cluster, un plot par cluster
+  scale_fill_manual(values = saison_colors) +
+  labs(title = "Nombre de jours par saison par cluster", x = "Saison", y = "Nombre de jours") +
+  theme_minimal()
+
+if (savefig) {
+  ggsave(file.path(figpath, "complete_CAH_with_PCA", "saison_cluster_acp.png"), width = 10, height = 6, bg = "white")
+}
+```
+
+```{r}
+ggplot(mean_dayanddn, aes(x = wd, y = ws, color = as.factor(saison))) +
+    geom_point(size = 0.5) +
+    coord_polar(start = 0) +  
+    scale_x_continuous(limits = c(0, 360), breaks = seq(0, 360, by = 45), labels = c("N", "NE", "E", "SE", "S", "SO", "O", "NO", "N")) +
+    labs(x = "Direction", y = "Vitesse du vent", color = "Saison") +
+    theme_minimal() +
+    scale_color_manual(values = saison_colors) +
+    facet_wrap(~ cluster_acp)
+
+sub_dir = 'saison'
+
+if (savefig) {
+    ggsave(file.path(figpath, sub_dir, "acp_complete.png"),
+           width = 10, height = 6, bg = "white")
+}
+
+```
+
+## Clustering avec liaison moyenne
+
+```{r}
+## Clustering
+distance_mat2 <- dist(data_acp,"euclidian")
+hc <- hclust(distance_mat2, method = 'average')
+
+# Plot les distances auxquelles sont aggrégés les clusters
+height_data <- data.frame(
+  Iteration = 1:length(hc$height),  # Les itérations
+  Hauteur = hc$height                # Les hauteurs des clusters à chaque itération
+)
+ggplot(height_data, aes(x = Iteration, y = Hauteur)) +
+ geom_line(color = "darkslateblue") +  # Trace la ligne
+  labs(title = "Distance d'aggrégation", x = "Itération", y = "Hauteur") +
+  theme_minimal()
+ 
+if (savefig) {
+  ggsave(file.path(figpath, "dendrogrammes","dist_average_CAH_with_PCA.png"), width = 10, height = 6, bg = "white")
+}
+
+b<-cutree(hc, k = 25) # k le nombre de clusters souhaités
+
+suppressPackageStartupMessages(library(dendextend))
+avg_dend_obj1 <- as.dendrogram(hc)
+ordered_clusters <- b[order.dendrogram(avg_dend_obj1)]
+
+# Colorier les branches du dendrogramme selon les groupes formés par cutree
+avg_col_dend1 <- color_branches(avg_dend_obj1, clusters = ordered_clusters)
+#suppress labels
+avg_col_dend1 <- set_labels(avg_col_dend1, k = 25, h = 30, labels = NA)
+#avg_col_dend1 <- color_branches(avg_dend_obj1, k=6, h = 35)
+plot(avg_col_dend1, cex.axis = 3, xaxt = "n")
+
+if (savefig) {
+  png(file.path(figpath, "dendrogrammes","average_CAH_with_PCA.png"), width = 4000, height = 3000, res = 300)
+  plot(avg_col_dend1, cex.axis = 3, xaxt = "n")
+  dev.off()  
+}
+mean_dayanddn$clusteravg_acp <- b
+```
+
+```{r}
+cluster_counts3 <- table(mean_dayanddn$clusteravg_acp)
+print(cluster_counts3)
+
+# on crée une nouvelle colonne pour récup juste les clusters où y a plus de 10 counts
+mean_dayanddn$cl_avg_acp <- mean_dayanddn$clusteravg_acp
+mean_dayanddn$cl_avg_acp[mean_dayanddn$clusteravg_acp %in% names(table(mean_dayanddn$clusteravg_acp)[table(mean_dayanddn$clusteravg_acp) < 10])] <- NaN
+
+cluster_counts4 <- table(mean_dayanddn$cl_avg_acp)
+
+print(cluster_counts4)
+
+
+```
+
+```{r}
+plot_clustering_results(mean_dayanddn, 'cl_avg_acp', 'average_CAH_with_PCA', 'average_CAH_with_PCA')
+```
+
+```{r}
+ggplot(mean_dayanddn, aes(x = wd, y = ws, color = as.factor(saison))) +
+    geom_point(size = 0.5) +
+    coord_polar(start = 0) +  
+    scale_x_continuous(limits = c(0, 360), breaks = seq(0, 360, by = 45), labels = c("N", "NE", "E", "SE", "S", "SO", "O", "NO", "N")) +
+    labs(x = "Direction", y = "Vitesse du vent", color = "Saison") +
+    theme_minimal() +
+    scale_color_manual(values = saison_colors) +
+    facet_wrap(~ cl_avg_acp)
+
+sub_dir = 'average_CAH_with_PCA'
+
+if (savefig) {
+    ggsave(file.path(figpath, sub_dir, "roses_saison.png"),
+           width = 10, height = 6, bg = "white")
+}
+```
+
+## Clustering kmeans
+
+```{r}
+data_kmeans <- data.frame(data_acp %>% select(-date))
+
+kmeans_result <- kmeans(data_kmeans, centers = 8, iter.max = 180, nstart = 10)
+
+mean_dayanddn$kmean_cluster <- as.factor(kmeans_result$cluster)
+```
+
+```{r}
+plot_clustering_results(mean_dayanddn, 'kmean_cluster', 'Kmeans', 'KMeans')
+```
+
+```{r}
+ggplot(mean_dayanddn, aes(x = wd, y = ws, color = as.factor(saison))) +
+    geom_point(size = 0.5) +
+    coord_polar(start = 0) +  
+    scale_x_continuous(limits = c(0, 360), breaks = seq(0, 360, by = 45), labels = c("N", "NE", "E", "SE", "S", "SO", "O", "NO", "N")) +
+    labs(x = "Direction", y = "Vitesse du vent", color = "Saison") +
+    theme_minimal() +
+    scale_color_manual(values = saison_colors) +
+    facet_wrap(~ kmean_cluster)
+
+sub_dir = 'Kmeans'
+
+if (savefig) {
+    ggsave(file.path(figpath, sub_dir, "rose_saisons.png"),
+           width = 10, height = 6, bg = "white")
+}
+```
+
+```{r}
+pond_kmm <- data.frame(data_acp %>% select(-date))
+pond_kmmresult <- kmeans(pond_kmm, centers = 8, iter.max = 180, nstart = 10)
+
+mean_dayanddn$pond_kmm_cl <- as.factor(pond_kmmresult$cluster)
+
+plot_clustering_results(mean_dayanddn, 'pond_kmm_cl', 'Kmeans', 'Kmeans')
+```
+
+## Clustering GMM
+
+```{r}
+gmm <- Mclust(data_kmeans)
+summary(gmm)
+#plot(gmm)
+mean_dayanddn$gmm_cluster <- gmm$classification
+```
+
+```{r}
+plot_clustering_results(mean_dayanddn, 'gmm_cluster', 'GMM', 'GMM')
+```
+
+```{r}
+ggplot(mean_dayanddn, aes(x = wd, y = ws, color = as.factor(saison))) +
+    geom_point(size = 0.5) +
+    coord_polar(start = 0) +  
+    scale_x_continuous(limits = c(0, 360), breaks = seq(0, 360, by = 45), labels = c("N", "NE", "E", "SE", "S", "SO", "O", "NO", "N")) +
+    labs(x = "Direction", y = "Vitesse du vent", color = "Saison") +
+    theme_minimal() +
+    scale_color_manual(values = saison_colors) +
+    facet_wrap(~ gmm_cluster)
+
+sub_dir = 'GMM'
+
+if (savefig) {
+    ggsave(file.path(figpath, sub_dir, "rose_saisons.png"),
+           width = 10, height = 6, bg = "white")
+}
+```
+
+# En utilisant les moyennes pour le jour et la nuit
+
+```{r}
+dist_ddnacp <- dist(daynight_acp,"euclidian")
+hc <- hclust(dist_ddnacp)
+
+# Plot les distances auxquelles sont aggrégés les clusters
+height_data <- data.frame(
+  Iteration = 1:length(hc$height),  # Les itérations
+  Hauteur = hc$height                # Les hauteurs des clusters à chaque itération
+)
+ggplot(height_data, aes(x = Iteration, y = Hauteur)) +
+  geom_line(color = "darkslateblue") +  # Trace la ligne
+  labs(title = "Distance d'aggrégation", x = "Itération", y = "Hauteur") +
+  theme_minimal()
+
+if (savefig) {
+  ggsave(file.path(figpath, "dendrogrammes", "dist_complete_CAH_with_PCA_daynight.png"), width = 10, height = 6, bg = "white")
+}
+
+b<-cutree(hc, k = 6) # k le nombre de clusters souhaités
+
+avg_dend_obj1 <- as.dendrogram(hc)
+ordered_clusters <- b[order.dendrogram(avg_dend_obj1)]
+
+# Colorier les branches du dendrogramme selon les groupes formés par cutree
+avg_col_dend1 <- color_branches(avg_dend_obj1, clusters = ordered_clusters)
+#suppress labels
+avg_col_dend1 <- set_labels(avg_col_dend1, k = 6, h = 20, labels = NA)
+#avg_col_dend1 <- color_branches(avg_dend_obj1, k=6, h = 35)
+plot(avg_col_dend1, cex.axis = 3, xaxt = "n")
+
+if (savefig) {
+  png(file.path(figpath, "dendrogrammes", "complete_CAH_with_PCA_daynight.png"), width = 4000, height = 3000, res = 300)
+  plot(avg_col_dend1, cex.axis = 3, xaxt = "n")
+  dev.off()  
+}
+mean_dayanddn <- na.omit(mean_dayanddn)
+mean_dayanddn$daynight_acp <- b
+rm(b)
+```
+
+# CO2
+
+```{r}
+if (windows) {
+  dataset_CO2 <- get(load("E:/_stageCO2/data/CO2/données CO2 par minutes (2016-2022) corrigées calibrées/dataset_CAV_cal_min_NF.RData"))
+  figpathCO2 = "E:/_stageCO2/figures/co2"
+  
+} else {
+  dataset_CO2 <- get(load("/Volumes/T7_Shield/_stageCO2/data/CO2/données CO2 par minutes (2016-2022) corrigées calibrées/dataset_CAV_cal_min_NF.RData"))
+  figpathCO2 = "/Volumes/T7_Shield/_stageCO2/figures/co2"
+}
+```
+
+```{r}
+# on nlève les lignes où y a des nan pour le CO2
+#dataset_CO2 <- dataset_CO2[!is.nan(dataset_CO2$CO2_dry_corr) & !is.na(dataset_CO2$CO2_dry_corr) &!is.na(dataset_CO2$date), ]
+dataset_CO2 <- dataset_CO2[!is.na(dataset_CO2$date), ]
+dataset_CO2 <- dataset_CO2[!is.na(dataset_CO2$CO2_dry_corr_cal), ]
+dataset_CO2 <- dataset_CO2[!is.nan(dataset_CO2$CO2_dry_corr_cal), ]
+# on filtre pour avoir les lignes où MPV = 1 (air)
+dataset_CO2$MPV <- as.numeric(as.character(dataset_CO2$MPV))
+dataset_CO2 <- dataset_CO2[dataset_CO2$MPV == 1, ]
+dataset_CO2$time <- as.numeric(difftime(dataset_CO2$date, min(dataset_CO2$date), units = "days")) / 365.25 # depuis le début des mesures
+
+res <- fit_regression(dataset_CO2, 'CO2_dry_corr_cal')
+dataset_CO2 <- res$data
+modelCO2 <- res$model
+
+dataset_CO2 <- dataset_CO2 %>%
+  mutate(month = as.numeric(as.character(month))) %>%
+  mutate(saison = case_when(
+    month %in% c(12, 1, 2) ~ "DJF",
+    month %in% c(3, 4, 5) ~ "MAM",
+    month %in% c(6, 7, 8) ~ "JJA",
+    month %in% c(9, 10, 11) ~ "SON",
+    TRUE ~ NA_character_
+  ))
+```
+
+```{r}
+dataset_CO2filtered <- dataset_CO2 %>% 
+  filter(year(date) >= 2018 & year(date)<= 2019)
+```
+
+```{r}
+ggplot(dataset_CO2filtered, aes(x = date, y = CO2_dry_corr_cal)) +
+  geom_point(color = "blue", size = 0.1) +  # Afficher les points des données
+  geom_line(aes(y = modelCO2$coefficients[1] + modelCO2$coefficients[2] * time), color = "black") +  # Afficher la courbe de régression
+  geom_line(aes(y = CO2_dry_corr_cal_modeled), color = "red") +  # Afficher la courbe de régression
+  labs(title = "CO2 et cycle", x = "Temps (années)", y = "CO2") +
+  theme_minimal()
+if (savefig) {
+  ggsave(file.path(figpathCO2, "co2_cycle_saisonnier.png"), bg = 'white', width = 20, height = 12)
+}
+```
+
+```{r}
+# plot le cycle diurne des concentrations de CO2 en fonction de la saison
+#cycle diurne
+cyclediurne_CO2 <- dataset_CO2 %>%
+  group_by(hour, saison) %>%
+  summarize(CO2_dry_corr_cal = mean(CO2_dry_corr_cal, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = saison, values_from = CO2_dry_corr_cal, values_fill = list(CO2_dry_corr_cal = NA)) %>%
+  left_join(dataset_CO2 %>%
+              group_by(hour) %>%
+              summarize(total = mean(CO2_dry_corr_cal, na.rm = TRUE), .groups = "drop"), 
+            by = "hour") 
+
+cyclediurne_CO2 <- dataset_CO2 %>%
+  group_by(saison, hour) %>%
+  summarise(
+    meanCO2 = mean(CO2_dry_corr_cal, na.rm = TRUE),
+    sdCO2 = sd(CO2_dry_corr_cal, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+total_CO2 <- dataset_CO2 %>%
+  group_by(hour) %>%
+  summarise(
+    meanCO2 = mean(CO2_dry_corr_cal, na.rm = TRUE),
+    sdCO2 = sd(CO2_dry_corr_cal, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(saison = "Total") 
+
+cyclediurne_CO2 <- bind_rows(cyclediurne_CO2, total_CO2)
+
+ggplot(cyclediurne_CO2, aes(x = hour, y = meanCO2, color = saison, fill = saison, group = saison)) +
+  geom_ribbon(aes(ymin = meanCO2 - sdCO2, ymax = meanCO2 + sdCO2),
+              alpha = 0.2, color = NA) +
+  geom_line() +
+  scale_color_manual(values = c(saison_colors, Total = "black")) +
+  scale_fill_manual(values = c(saison_colors, Total = "black")) +
+  labs(title = "Cycle diurne du CO2 par saison",
+       x = "Heure",
+       y = "CO₂ (ppm)",
+       color = "Saison",
+       fill = "Saison") +
+  theme_minimal()
+
+ggplot(cyclediurne_CO2, aes(x = hour, y = meanCO2, color = saison, group = saison)) +
+  geom_line() +
+  scale_color_manual(values = c(saison_colors, Total = "black")) +
+  labs(title = "Cycle diurne du CO2 par saison",
+       x = "Heure",
+       y = "CO₂ (ppm)",
+       color = "Saison",
+       fill = "Saison") +
+  theme_minimal()
+```
+
+```{r}
+cyclediurne_combined <- dataset_CO2 %>%
+  group_by(hour, saison) %>%
+  summarize(
+    mean_CO2 = mean(CO2_dry_corr_cal, na.rm = TRUE),
+    sd_CO2 = sd(CO2_dry_corr_cal, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+cyclediurne_CO2 <- cyclediurne_combined %>%
+  pivot_wider(
+    names_from = saison,
+    values_from = c(mean_CO2, sd_CO2),
+    names_sep = "_",
+    values_fill = NA
+  ) %>%
+  left_join(
+    dataset_CO2 %>%
+      group_by(hour) %>%
+      summarize(total = mean(CO2_dry_corr_cal, na.rm = TRUE),
+                total_sd = sd(CO2_dry_corr_cal, na.rm = TRUE),
+                .groups = "drop"),
+    by = "hour"
+  )
+
+ggplot(cyclediurne_CO2, aes(x = hour)) +
+  # Rubans d'écart-type (±1 écart-type)
+  geom_ribbon(aes(ymin = mean_CO2_DJF - sd_CO2_DJF, ymax = mean_CO2_DJF + sd_CO2_DJF, group = 1),
+              fill = saison_colors["DJF"], alpha = 0.2) +
+  geom_ribbon(aes(ymin = mean_CO2_MAM - sd_CO2_MAM, ymax = mean_CO2_MAM + sd_CO2_MAM, group = 1),
+              fill = saison_colors["MAM"], alpha = 0.2) +
+  geom_ribbon(aes(ymin = mean_CO2_JJA - sd_CO2_JJA, ymax = mean_CO2_JJA + sd_CO2_JJA, group = 1),
+              fill = saison_colors["JJA"], alpha = 0.2) +
+  geom_ribbon(aes(ymin = mean_CO2_SON - sd_CO2_SON, ymax = mean_CO2_SON + sd_CO2_SON, group = 1),
+              fill = saison_colors["SON"], alpha = 0.2) +
+  geom_ribbon(aes(ymin = total - total_sd, ymax = total + total_sd),
+              fill = "black", alpha = 0.1) +
+
+  # Courbes des moyennes
+  geom_line(aes(y = mean_CO2_DJF, color = "DJF", group = 1), linewidth = 1) +
+  geom_line(aes(y = mean_CO2_MAM, color = "MAM",group = 1), linewidth = 1) +
+  geom_line(aes(y = mean_CO2_JJA, color = "JJA", group = 1), linewidth = 1) +
+  geom_line(aes(y = mean_CO2_SON, color = "SON", group = 1),linewidth = 1) +
+  geom_line(aes(y = total, color = "Total", group = 1), linewidth = 1) +
+
+  scale_color_manual(values = c(saison_colors, Total = "black")) +
+  labs(title = "Cycle diurne du CO2 par saison",
+       x = "Heure",
+       y = "CO2 (ppm)",
+       color = "Saison") +
+  theme_minimal()
+
+rm(cyclediurne_combined)
+```
+
+```{r}
+ggplot(cyclediurne_CO2, aes(x = hour)) +
+  geom_line(aes(y = mean_CO2_DJF, color = "DJF", group = 1)) +  
+  geom_line(aes(y = mean_CO2_MAM, color = "MAM", group = 1)) +  
+  geom_line(aes(y = mean_CO2_JJA, color = "JJA", group = 1)) + 
+  geom_line(aes(y = mean_CO2_SON, color = "SON", group = 1)) +  
+  geom_line(aes(y = total, color = "Total", group = 1)) +  
+  scale_color_manual(values = saison_colors) +
+  labs(title = "Cycle diurne du CO2", x = "Heure", y = "CO2 (ppm)", color = "Saison") +
+  theme_minimal()
+```
+
+```{r}
+daily_meanCO2 <- dataset_CO2 %>%
+  group_by(date = as.Date(date)) %>%
+  summarize(daily_mean = mean(CO2_dry_corr_cal, na.rm = TRUE), .groups = "drop") %>%
+  mutate(month = month(date))
+daily_meanCO2$month <- as.factor(daily_meanCO2$month)
+
+ggplot(daily_meanCO2, aes(x = month, y = daily_mean, fill = month)) +
+  geom_boxplot(outlier.shape = NA) +
+  labs(title = "Boxplot des moyennes journalières par mois",
+       x = "Mois",
+       y = "Moyenne journalière") +
+  scale_y_continuous(limits = quantile(daily_meanCO2$daily_mean, c(0.1, 0.9)))+
+  scale_fill_viridis_d(option = "turbo", begin = 0.1, end = 0.9)+
+  theme_minimal()
+```
+
+## Plot vent vs CO2
+
+```{r}
+hourly_CO2 <- dataset_CO2 %>%
+  mutate(date = floor_date(date, unit = "hour")) %>%
+  group_by(date) %>%
+  summarise(moyenneCO2 = mean(CO2_dry_corr_cal, na.rm = TRUE))
+
+vent_CO2 <- inner_join(hourly_CO2, dataset, by = "date")
+```
+
+```{r}
+ggplot(vent_CO2, aes(x = wind_speed, y = moyenneCO2, color = wind_dir)) +
+  geom_point(size = 1) +
+  scale_color_viridis(option = "H") + 
+   ylim(350, 600) +
+  theme_minimal()
+
+if (savefig) {
+  ggsave(file.path(figpathCO2, "co2_vent.png"), bg = 'white', width = 20, height = 12)
+}
+```
+
+## CO2 by cluster
+
+```{r}
+dataset_CO2$dateday <- as.Date(dataset_CO2$date)
+dataset_CO2 <- dataset_CO2 %>%
+  left_join(mean_dayanddn %>% select(date, cl_avg_acp, kmean_cluster, gmm_cluster, cluster_acp, ws, wd), by = c("dateday" = "date"))
+
+```
+
+```{r}
+dataset_CO2$cl_avg_acp = as.factor(dataset_CO2$cl_avg_acp)
+
+rose <- polarFreq(dataset_CO2, pollutant = "CO2_dry_corr_cal", type = 'cl_avg_acp', statistic = 'mean', min.bin = 2 )
+
+if (savefig) {
+  png(file.path(figpathCO2, "rose_CO2_by_day_avgCAH_withACP.png"), width = 5000, height = 3000, res = 500)
+  print(rose)  # Pour forcer l'affichage de l'objet openair dans le fichier
+  dev.off()
+}
+```
+
+```{r}
+# revoir les boxplots !!!!!
+
+CO2_cluster_box <- ggplot(dataset_CO2, aes(x = cl_avg_acp, y = CO2_dry_corr_cal, fill = as.factor(cl_avg_acp))) +
+      geom_boxplot() +
+      labs(title = "CO2 par cluster", 
+           x = "cluster par liaison moyenne et ACP", 
+           y = "CO2") +
+      theme_minimal()
+print(CO2_cluster_box)
+
+#avec des boites à moustache MAIS ATTENTION LES MOUSTACHES SONT COUPEES
+CO2_cl_boxplot <- ggplot(dataset_CO2, aes(x = cl_avg_acp, y = CO2_dry_corr_cal)) +
+  geom_boxplot(aes(fill = as.factor(cl_avg_acp)), outlier.shape = NA) +
+  labs(title = "CO2 par cluster", 
+       x = "cluster par liaison moyenne et ACP", 
+       y = "CO2") +
+  scale_y_continuous(limits = c(350, 485)) +
+  theme_minimal()
+print(CO2_cl_boxplot)
+
+kmm_box_co2 <- ggplot(dataset_CO2, aes(x = kmean_cluster, y = CO2_dry_corr_cal)) +
+  geom_boxplot(aes(fill = as.factor(kmean_cluster)), outlier.shape = NA) +
+  labs(title = "CO2 par cluster", 
+       x = "cluster par kmm", 
+       y = "CO2") +
+  scale_y_continuous(limits = c(350, 485)) +
+  theme_minimal()
+print(kmm_box_co2)
+```
+
+```{r}
+dataset_CO2$kmean_cluster = as.factor(dataset_CO2$kmean_cluster)
+
+rose <- polarFreq(dataset_CO2, pollutant = "CO2_dry_corr_cal", type = 'kmean_cluster', statistic = 'mean', min.bin = 2 )
+
+if (savefig) {
+  png(file.path(figpathCO2, "rose_CO2_by_day_kmeans.png"), width = 5000, height = 3000, res = 500)
+  print(rose)  # Pour forcer l'affichage de l'objet openair dans le fichier
+  dev.off()
+}
+```
+
+```{r}
+dataset_CO2$gmm_cluster = as.factor(dataset_CO2$gmm_cluster)
+
+rose <- polarFreq(dataset_CO2, pollutant = "CO2_dry_corr_cal", type = 'cl_avg_acp', statistic = 'mean', min.bin = 2 )
+
+if (savefig) {
+  png(file.path(figpathCO2, "rose_CO2_by_day_GMM.png"), width = 5000, height = 3000, res = 500)
+  print(rose)  # Pour forcer l'affichage de l'objet openair dans le fichier
+  dev.off()
+}
+```
+
+## Clustering par saison
+
+### Test sur le pic du matin en hiver
+
+```{r}
+#winter_fpath  = "/Volumes/T7_Shield/_stageCO2/figures/test_pic_hiver/"
+# on fait la moyenne sur le pic
+dataset_peak <- dataset %>%
+  filter(winter_peak) %>%
+  group_by(date = as.Date(date)) %>%
+  summarize(
+    windu = mean(windu, na.rm = TRUE),
+    windv = mean(windv, na.rm = TRUE),
+    t2m = mean(t2m, na.rm = TRUE),
+    t2m_ano = mean(t2m_ano, na.rm = TRUE),
+    surfacepressure = mean(surfacepressure, na.rm = TRUE),
+    surfacepressure_ano = mean(surfacepressure_ano, na.rm = TRUE),
+    relative_humidity = mean(relative_humidity, na.rm = TRUE),
+    relative_humidity_ano = mean(relative_humidity_ano, na.rm = TRUE),
+    ssrd = mean(ssrd, na.rm = TRUE),
+    ssrd_ano = mean(ssrd_ano, na.rm = TRUE),
+    totalprecipitation = sum(totalprecipitation, na.rm = TRUE),
+    ws = mean(wind_speed, na.rm = TRUE),
+    wd = mean(circular(wind_dir, units = "degrees", type = "angles"), na.rm = TRUE) %% 360,
+    .groups = "drop"
+  ) %>%
+  arrange(date)
+
+head(dataset_peak)
+```
+
+```{r}
+## Préparation des données
+ch_peak <- data.frame(
+                      date=dataset_peak$date,
+                      windu = dataset_peak$windu,
+                      windv = dataset_peak$windv,
+                      t2m_ano = dataset_peak$t2m_ano,
+                      surfacepressure_ano = dataset_peak$surfacepressure_ano,
+                      #totalprecipitation = dataset_peak$totalprecipitation, # ajouter une ACP et log ? pour l'inclure
+                      relative_humidity_ano = dataset_peak$relative_humidity_ano,
+                      ssrd_ano = dataset_peak$ssrd_ano
+                      )
+peak_acp <- data.frame(ch_peak %>% select(-date))
+acp <- prcomp(peak_acp, scale = TRUE, center = TRUE)
+summary(acp)
+plot(acp)
+
+data_peak_acp <- data.frame(acp$x[, 1:5])
+data_peak_acp$date <- ch_peak$date
+```
+
+```{r}
+data_peak_kmeans <- data.frame(data_peak_acp %>% select(-date))
+
+kmeans_peakres <- kmeans(data_peak_kmeans, centers = 6, iter.max = 180, nstart = 10)
+
+dataset_peak$kmean_cluster <- as.factor(kmeans_peakres$cluster)
+```
+
+```{r}
+plot_clustering_results(dataset_peak, 'kmean_cluster', 'wintermorningpeak_kmeans', 'KMeans')
+```
+
+```{r}
+peak_CO2 <- dataset_CO2 %>%
+  filter(hour(date) %in% 6:7 & saison == 'DJF')
+
+peak_CO2 <- peak_CO2 %>%
+  left_join(dataset_peak %>% select(date, kmean_cluster, ws, wd), by = c("dateday" = "date"))
+
+peak_CO2$kmean_cluster = as.factor(peak_CO2$kmean_cluster)
+
+roses_KMM_winter_peak <- polarFreq(peak_CO2, pollutant = "CO2_dry_corr_cal", type = 'kmean_cluster', statistic = 'mean', min.bin = 2 )
+
+if (savefig) {
+  png(paste0(figpath, "wintermorningpeak_kmeans", "roses_KMM.png"), width = 3000, height = 2500, res = 300)
+  print(roses_KMM_winter_peak)
+  dev.off()
+}
+```
+
+## Calcul du 5e percentile
+
+### Calcul des 5 percentiles sur une fenêtre mouvante de 3 jours qui commentce à 00h00 UTC
+
+```{r}
+# on travaille d'abord sur un mois
+dataset_CO2_10_2018 <- dataset_CO2 %>% 
+  filter(year(date) == 2018) %>%
+  filter(month(date) == 10)
+
+
+# on crée une nouvelle colonne pour identifier le background
+dataset_CO2_10_2018$background <- FALSE
+
+dataset_CO2_10_2018$datejour <-  as.Date(dataset_CO2_10_2018$date)
+dataset_CO2_10_2018$background5j <- FALSE
+# on fait une boucle sur les jours
+unique_dates <- unique(dataset_CO2_10_2018$datejour)
+unique_dates
+
+for (i in 1:(length(unique_dates) -2)){
+  window_dates <- unique_dates[i:(i+2)]
+  window_data <- dataset_CO2_10_2018 %>%
+    filter(datejour %in% window_dates)
+  seuil <- quantile(window_data$CO2_dry_corr_cal, probs = 0.05, na.rm = TRUE)
+  
+  dataset_CO2_10_2018$background[dataset_CO2_10_2018$date %in%
+                                   window_data$date[window_data$CO2_dry_corr_cal <= seuil]] <- TRUE
+  
+}
+
+for (i in 1:(length(unique_dates) -4)){
+  window_dates <- unique_dates[i:(i+4)]
+  window_data <- dataset_CO2_10_2018 %>%
+    filter(datejour %in% window_dates)
+  seuil <- quantile(window_data$CO2_dry_corr_cal, probs = 0.05, na.rm = TRUE)
+  
+  dataset_CO2_10_2018$background5j[dataset_CO2_10_2018$date %in%
+                                   window_data$date[window_data$CO2_dry_corr_cal <= seuil]] <- TRUE
+  
+}
+```
+
+### Plot
+
+```{r}
+plotCO2 <- ggplot(dataset_CO2_10_2018, aes(x = date, y = CO2_dry_corr_cal)) +
+  geom_point(aes(color = background)) +
+  geom_line(aes(group = background), subset(dataset_CO2_10_2018, background))+
+  scale_color_manual(values = c("FALSE" = "deepskyblue3", "TRUE" = "black")) +
+  labs(x = "Date", y = "Concentration CO2 (ppm)", color = "Background") +
+  scale_x_datetime(
+    date_breaks = "2 days",            # Major breaks : toutes les 24h
+  ) +
+  theme_minimal() + 
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank()
+  )
+
+plot_CO25j <- ggplot(dataset_CO2_10_2018, aes(x = date, y = CO2_dry_corr_cal)) +
+  geom_point(aes(color = background5j)) +
+  geom_line(aes(group = background5j, color = 'red'), subset(dataset_CO2_10_2018, background5j))+
+  scale_color_manual(values = c("FALSE" = "deepskyblue3", "TRUE" = "red")) +
+  labs(x = "Date", y = "Concentration CO2 (ppm)", color = "Background avec fenêtre 5j") +
+  scale_x_datetime(
+    date_breaks = "2 days",            # Major breaks : toutes les 24h
+  ) +
+  theme_minimal() + 
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank()
+  )
+
+```
+
+```{r}
+plot_combined <- ggplot(dataset_CO2_10_2018, aes(x = date, y = CO2_dry_corr_cal)) +
+  # Points pour les deux background (deux couleurs)
+  geom_point(aes(color = background)) +
+  
+  # Lignes pour les deux background (une pour chaque)
+  geom_line(aes(group = background, color = "background"), 
+            data = subset(dataset_CO2_10_2018, background)) +
+  geom_line(aes(group = background5j, color = "background5j"), 
+            data = subset(dataset_CO2_10_2018, background5j)) +
+  
+  # Couleurs personnalisées
+  scale_color_manual(values = c("FALSE" = "deepskyblue3", 
+                                "TRUE" = "black", 
+                                "background5j" = "red")) +
+  
+  # Labels
+  labs(x = "Date", y = "Concentration CO2 (ppm)", color = "Background fenêtres 3 et 5j") +
+  
+  # Échelles et axe X
+  scale_x_datetime(date_breaks = "2 days") +  # Major breaks : tous les 2 jours
+  
+  # Thème minimal
+  theme_minimal() + 
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank()
+  )
+
+if (savefig) {
+  ggsave(file.path(figpathCO2, "5e_percentile", "background_3-5j.png"), bg = 'white', width = 20, height = 12)
+}
+plot_combined
+
+```
+
+```{r}
+era5_10_2018 <- dataset %>%
+  filter(year(date) == 2018) %>%
+  filter(month(date) == 10)
+```
+
+```{r}
+plotws <- ggplot(era5_10_2018, aes(x = date, y = wind_speed)) +
+  geom_point(color = 'brown1') +
+  labs(x = "Date", y = "Vitesse du vent (ERA5) (m/s)") +
+  scale_x_datetime(
+    date_breaks = "2 days",
+  ) +
+  theme_minimal()
+
+vent <- plot_combined/plotws + plot_layout(axis_titles = "collect")
+ggsave(file.path(figpathCO2, "5e_percentile", "avecvent.pdf"), plot = vent, width = 24, height = 30, dpi = 1200)
+vent
+```
