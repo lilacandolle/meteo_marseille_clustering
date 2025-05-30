@@ -5,7 +5,7 @@ date: "2025-05-19"
 output: html_document
 ---
 
-```{r}
+```{r, results='hide'}
 # chargement des librairies
 library(ggplot2)
 library(dplyr)
@@ -30,6 +30,9 @@ if (mac) {
   df <- read.csv("E:\\_stageCO2\\data\\Meteo_France\\LCPMARVAL_20162025.csv", header = TRUE, sep = ",")
   figpath <- "E:\\_stageCO2\\fig_meteofrance\\"
 }
+
+# le chemin relatif
+df <- read.csv("./data/Meteo_France/LCPMARVAL_20162025.csv", header = TRUE, sep = ",")
 ```
 
 ```{r}
