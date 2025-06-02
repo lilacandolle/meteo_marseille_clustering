@@ -3,7 +3,7 @@ title: "compa"
 output: html_document
 ---
 
-```{r}
+```{r, results=FALSE}
 library(ggplot2)
 library(dplyr)
 library(tidyr)
@@ -18,30 +18,17 @@ library(patchwork)
 ```{r}
 # paramètres pour l'exécution du code
 savefig = TRUE
-mac = FALSE
 ```
 
 ```{r}
 #chargement des fichiers
-if (mac) {
-  # Mac
-  df_mf <- read.csv("/Volumes/T7_Shield/_stageCO2/data/Meteo_France/LCPMARVAL_20162025.csv", header = TRUE, sep = ",")
-  setwd("/Volumes/T7_Shield/_stageCO2/codeLila/ERA5vsOBS")
-  figpath = ("/Volumes/T7_Shield/_stageCO2/figures_compa/")
-  nc_windu_era5 <- nc_open("/Volumes/T7_Shield/_stageCO2/data/ECMWF/forcomparison/20222023_MARcoords_ERA5windu.nc")
-  nc_windv_era5 <- nc_open("/Volumes/T7_Shield/_stageCO2/data/ECMWF/forcomparison/20222023_MARcoords_ERA5windv.nc")
-  nc_t2m_era5 <- nc_open("/Volumes/T7_Shield/_stageCO2/data/ECMWF/forcomparison/20222023_MARcoords_ERA5_t2m.nc")
-  nc_tp_era5 <- nc_open("/Volumes/T7_Shield/_stageCO2/data/ECMWF/forcomparison/20222023_MARcoords_ERA5_totalprecipitation.nc")
-  } else {
-  # Windows
-  df_mf <- read.csv("E:\\_stageCO2\\data\\Meteo_France\\LCPMARVAL_20162025.csv", header = TRUE, sep = ",")
-  setwd("E:\\_stageCO2\\codeLila\\ERA5vsOBS")
-  figpath <- "E:\\_stageCO2\\fig_meteofrance\\"
-  nc_windu_era5 <- nc_open("E:\\_stageCO2\\data\\ECMWF\\forcomparison\\20222023_MARcoords_ERA5windu.nc")
-  nc_windv_era5 <- nc_open("E:\\_stageCO2\\data\\ECMWF\\forcomparison\\20222023_MARcoords_ERA5windv.nc")
-  nc_t2m_era5 <- nc_open("E:\\_stageCO2\\data\\ECMWF\\forcomparison\\20222023_MARcoords_ERA5_t2m.nc")
-  nc_tp_era5 <- nc_open("E:\\_stageCO2\\data\\ECMWF\\forcomparison\\20222023_MARcoords_ERA5_totalprecipitation.nc")
-  }
+df_mf <- read.csv("../data/raw/MeteoFrance/LCPMARVAL_20162025.csv", header = TRUE, sep = ",")
+figpath = ("../outputs/figures/compaMARobsERA5/")
+nc_windu_era5 <- nc_open("../data/raw/ECMWF/MARforcomparison/20222023_MARcoords_ERA5windu.nc")
+nc_windv_era5 <- nc_open("../data/raw/ECMWF/MARforcomparison/20222023_MARcoords_ERA5windv.nc")
+nc_t2m_era5 <- nc_open("../data/raw/ECMWF/MARforcomparison/20222023_MARcoords_ERA5_t2m.nc")
+nc_tp_era5 <- nc_open("../data/raw/ECMWF/MARforcomparison/20222023_MARcoords_ERA5_totalprecipitation.nc")
+
 ```
 
 ```{r}
