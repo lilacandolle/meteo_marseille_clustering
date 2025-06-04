@@ -2,8 +2,14 @@
 title: "compa"
 output: html_document
 ---
+```{r setup} 
+# on fait en sorte que le wd soit bon aussi quand on exécute chunk by chunk
+if (interactive()) {
+  setwd(rprojroot::find_rstudio_root_file())
+}
+```
 
-```{r, results=FALSE}
+```{r, results='hide', warnings = FALSE, message= FALSE}
 library(ggplot2)
 library(dplyr)
 library(tidyr)
@@ -13,21 +19,18 @@ library(foehnix)
 library(metR)
 library(ncdf4)
 library(patchwork)
-```
-
-```{r}
 # paramètres pour l'exécution du code
 savefig = TRUE
 ```
 
 ```{r}
 #chargement des fichiers
-df_mf <- read.csv("../data/raw/MeteoFrance/LCPMARVAL_20162025.csv", header = TRUE, sep = ",")
-figpath = ("../outputs/figures/compaMARobsERA5/")
-nc_windu_era5 <- nc_open("../data/raw/ECMWF/MARforcomparison/20222023_MARcoords_ERA5windu.nc")
-nc_windv_era5 <- nc_open("../data/raw/ECMWF/MARforcomparison/20222023_MARcoords_ERA5windv.nc")
-nc_t2m_era5 <- nc_open("../data/raw/ECMWF/MARforcomparison/20222023_MARcoords_ERA5_t2m.nc")
-nc_tp_era5 <- nc_open("../data/raw/ECMWF/MARforcomparison/20222023_MARcoords_ERA5_totalprecipitation.nc")
+df_mf <- read.csv("./data/raw/MeteoFrance/LCPMARVAL_20162025.csv", header = TRUE, sep = ",")
+figpath = ("./outputs/figures/compaMARobsERA5/")
+nc_windu_era5 <- nc_open("./data/raw/ECMWF/MARforcomparison/20222023_MARcoords_ERA5windu.nc")
+nc_windv_era5 <- nc_open("./data/raw/ECMWF/MARforcomparison/20222023_MARcoords_ERA5windv.nc")
+nc_t2m_era5 <- nc_open("./data/raw/ECMWF/MARforcomparison/20222023_MARcoords_ERA5_t2m.nc")
+nc_tp_era5 <- nc_open("./data/raw/ECMWF/MARforcomparison/20222023_MARcoords_ERA5_totalprecipitation.nc")
 
 ```
 
@@ -63,6 +66,8 @@ df_era5 <- data.frame(
   t2m_era5 = ncvar_get(nc_t2m_era5, "t2m")[valid_indices],
   tp_era5 = ncvar_get(nc_tp_era5, "tp")[valid_indices]
 )
+
+rm(nc_windu_era5, nc_windv_era5, nc_t2m_era5, nc_tp_era5, time, start_date, end_date, valid_indices)
 df_era5$t2m_era5 <- df_era5$t2m_era5 - 273.15  # conversion de Kelvin à Celsius
 
 # on transforme date de secondes en POSIXct
@@ -90,48 +95,11 @@ df$windv_mf <- uv$v
 df_3j <- df %>%
   filter(DateTime > as.POSIXct("2023-02-17") & DateTime < as.POSIXct("2023-02-21"))
 
-#€ on crée une colonne avec les heures dsepuis le début du df
+# on crée une colonne avec les heures dsepuis le début du df
 df_3j$heures <- as.numeric(difftime(df_3j$DateTime, min(df_3j$DateTime), units = "hours"))
 
-#plot
-a <- ggplot(df_3j, aes(x = heures, y = 0)) +
-  geom_point() +
-  geom_segment(aes(xend = heures + windu_mf, yend = windv_mf), y = 0,
-               arrow = arrow()) +
-  scale_x_continuous(
-    name = NULL,
-    breaks = pretty(df_3j$heures, n = 7),
-    labels = NULL
-  ) +
-  coord_fixed() +
-  theme_minimal() +
-  theme(
-    axis.title.y = element_blank(),
-    axis.text.y = element_blank(),
-    axis.ticks.y = element_blank()
-  )
-
-b <- ggplot(df_3j, aes(x = heures, y = 0)) +
-  geom_point() +
-  geom_segment(aes(xend = heures + windu_era5, yend = windv_era5), y = 0,
-               arrow = arrow()) +
-  scale_x_continuous(
-    name = NULL,
-    breaks = pretty(df_3j$heures, n = 7),
-    labels = function(x) format(min(df_3j$DateTime) + x * 3600, "%Y-%m-%d %H:%M")
-  ) +
-  coord_fixed() +
-  theme_minimal() +
-  theme(
-    axis.title.y = element_blank(),
-    axis.text.y = element_blank(),
-    axis.ticks.y = element_blank()
-  )
-
-a / b
-
-
 ```
+
 ```{r}
 breaks_major <- seq(0, max(df_3j$heures), by = 24)
 
@@ -183,6 +151,7 @@ summary(df_3j$windu_era5)
 summary(df_3j$windv_mf)
 summary(df_3j$windv_era5)
 ```
+
 ```{r}
 rmse_ff <- sqrt(mean((df$FF - df$FF_era5)^2, na.rm = TRUE))
 print(paste("RMSE FF:", round(rmse_ff, 2)))
@@ -192,8 +161,10 @@ rmse_t <- sqrt(mean((df$T - df$t2m_era5)^2, na.rm = TRUE))
 print(paste("RMSE T:", round(rmse_t, 2)))
 bias_t <- mean(df$T - df$t2m_era5, na.rm = TRUE)
 print(paste("Bias T:", round(bias_t, 2)))
-
-#count le nb de jours de pluie pour RR1 et tp sachant que mes données sont horaire du coup summarize par jour (DateTime est en posixct)
+```
+```{r}
+# ça marche pas pour l'instant
+#count le nb de jours de pluie pour RR1 et tp sachant que mes données sont horaire du coup summarize par jour (DateTime est en posixct) 
 df$Date <- as.Date(df$DateTime)
 df_pluie <- df %>%
   group_by(Date) %>%

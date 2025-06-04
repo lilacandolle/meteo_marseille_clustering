@@ -1,0 +1,64 @@
+---
+title: "basic_plots_ERA5"
+output: html_document
+---
+```{r}
+library(ggplot2)
+library(openair)
+```
+```{r}
+# couleurs pour plot en fonction des saisons
+saison_colors <- c("DJF" = "deepskyblue3",    
+                   "MAM" = "springgreen4",
+                   "JJA" = "gold",     
+                   "SON" = "orangered1")
+```
+
+```{r}
+dataset <- readRDS("./data/processed/ERA5_dataset.rds")
+```
+```{r}
+# roses des vents par saison
+wind <- windRose(dataset, type = "saison", paddle = F, border = T,
+         key.header = "ERA5 at LCPcoords", key.footer = "Vitesse du vent (m/s)", 
+         breaks = c(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20),
+         )
+```
+```{r}
+cycle_diurne_meteo <- dataset %>%
+  group_by(saison, hour) %>%
+  summarise(mean_blh = mean(ablh, na.rm = TRUE),
+            mean_ws = mean(ws, na.rm = TRUE),
+            mean_t2m = mean(t2m, na.rm = TRUE),
+            mean_ssrd = mean(ssrd, na.rm = TRUE),
+            mean_sp = mean(surfacepressure, na.rm = TRUE),
+            mean_rh = mean(relative_humidity, na.rm = TRUE),
+            mean_ssrd = mean(ssrd, na.rm = TRUE),
+            .groups = "drop"
+            )
+# Liste des variables et des titres
+vars_to_plot <- list(
+  "mean_blh" = "Cycle diurne de la BLH par saison (ERA5)",
+  "mean_ws" = "Cycle diurne de la vitesse du vent par saison (ERA5)",
+  "mean_t2m" = "Cycle diurne de la température à 2m par saison (ERA5)",
+  "mean_ssrd" = "Cycle diurne du rayonnement solaire par saison (ERA5)",
+  "mean_sp" = "Cycle diurne de la pression à la surface par saison (ERA5)",
+  "mean_rh" = "Cycle diurne de l'humidité relative par saison (ERA5)",
+  "mean_ssrd" = "Cycle diurne du rayonnement solaire par saison (ERA5)"
+)
+
+# Boucle pour faire les plots
+for (varname in names(vars_to_plot)) {
+  ggplot(cycle_diurne_meteo, aes_string(x = "hour", y = varname, color = "saison")) +
+    geom_line() +
+    scale_color_manual(values = saison_colors) +
+    labs(title = vars_to_plot[[varname]],
+         x = "Heure",
+         y = "Valeur moyenne",
+         color = "Saison") +
+    theme_minimal() -> p
+
+  print(p)
+}
+```
+

@@ -4,6 +4,12 @@ author: "Lila Cassan"
 date: "2025-05-19"
 output: html_document
 ---
+```{r setup} 
+# on fait en sorte que le wd soit bon aussi quand on exécute chunk by chunk
+if (interactive()) {
+  setwd(rprojroot::find_rstudio_root_file())
+}
+```
 
 ```{r, results='hide'}
 # chargement des librairies
@@ -17,22 +23,13 @@ library(metR)
 
 # paramètres pour l'exécution du code
 savefig = TRUE
-mac = FALSE
 ```
 
 ```{r}
-if (mac) {
-  # Mac
-  df <- read.csv("/Volumes/T7_Shield/_stageCO2/data/Meteo_France/LCPMARVAL_20162025.csv", header = TRUE, sep = ",")
-  figpath = "/Volumes/T7_Shield/_stageCO2/figures_meteofrance/"
-} else {
-  # Windows
-  df <- read.csv("E:\\_stageCO2\\data\\Meteo_France\\LCPMARVAL_20162025.csv", header = TRUE, sep = ",")
-  figpath <- "E:\\_stageCO2\\fig_meteofrance\\"
-}
-
 # le chemin relatif
-df <- read.csv("./data/Meteo_France/LCPMARVAL_20162025.csv", header = TRUE, sep = ",")
+df <- read.csv("./data/raw/MeteoFrance/LCPMARVAL_20162025.csv", header = TRUE, sep = ",")
+figpath <- "./outputs/figures/basic_meteofrance/"
+
 ```
 
 ```{r}
@@ -130,6 +127,7 @@ for (varname in names(vars_to_plot)) {
 
   print(p)
 }
+
 wind_MAR <- windRose(df_MAR, ws = "FF", wd = "DD", type = "saison", paddle = F, border = T,
          key.header = "MAR", key.footer = "Vitesse du vent (m/s)", 
          key.position = "bottom", key.width = 0.5, 
@@ -147,29 +145,4 @@ wind_VAL <- windRose(df_VAL, ws = "FF", wd = "DD", type = "saison", paddle = F, 
          key.text.family = "sans", key.text.lineheight = 1.2,
          breaks = c(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20),
          )
-```
-
-```{r}
-# test du plot comme dans l'article de Menut pour comparer le vent des observations et des réanalyses ERA5
-# on sélectionne 5 jours à MAR
-df_compa <- df %>%
-  filter(station == "MAR" & DateTime >= as.POSIXct("2020-03-01") & DateTime < as.POSIXct("2020-03-06")) %>%
-  select(DateTime, FF, DD)
-
-# on les plot sous forme de flèches qui ont comme direction la direction du vent et comme norme la vitesse du vent mais avec un y qui veut rien dired du coup
-uv <- ddff2uv(df_compa$FF, df_compa$DD)
-df_compa$wu <- uv$u
-df_compa$wv <- uv$v
-
-#on crée une colonne avec le temps en heurers depuis lme début du df à partir de la colonned DateTime en posixct
-df_compa$time <- as.numeric(difftime(df_compa$DateTime, min(df_compa$DateTime), units = "hours"))
-
-ggplot(df_compa, aes(x = time, y= 0)) +
-  geom_point() +
-  geom_segment(aes(x = time, y = 0, xend = time + wu*0.03, yend = wv*0.03),
-    arrow = arrow()
-  ) +
-  coord_fixed() +
-  theme_minimal()
-
 ```

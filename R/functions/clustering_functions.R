@@ -31,6 +31,49 @@ fit_regression <- function(data, var, trend = TRUE) {
   return(list(data = data, model = model))
 }
 
+#' Fonction pour effectuer la régression et calculer les anomalies pour plusieurs variables
+#' @param data Données à traiter (data.frame)
+#' @param vars Vecteur de noms de variables à désaisonnaliser (caractères)
+#' @param trend Indique si la tendance doit être incluse dans la régression. Par défaut, TRUE.
+#'
+#' @return Liste contenant :
+#'   - data : les données avec colonnes ajoutées
+#'   - models : une liste nommée des modèles de régression pour chaque variable
+fit_regression_multi <- function(data, vars, trend = TRUE) {
+  models <- list()
+  
+  for (var in vars) {
+    # Créer la formule selon le paramètre trend
+    if (!trend) {
+      formula <- as.formula(paste(var, "~ sin(2 * pi * time) + cos(2 * pi * time) +",
+                                  "sin(4 * pi * time) + cos(4 * pi * time) +",
+                                  "sin(6 * pi * time) + cos(6 * pi * time) +",
+                                  "sin(8 * pi * time) + cos(8 * pi * time)"))
+    } else {
+      formula <- as.formula(paste(var, "~ 1 + time +",
+                                  "sin(2 * pi * time) + cos(2 * pi * time) +",
+                                  "sin(4 * pi * time) + cos(4 * pi * time) +",
+                                  "sin(6 * pi * time) + cos(6 * pi * time) +",
+                                  "sin(8 * pi * time) + cos(8 * pi * time)"))
+    }
+    
+    # Ajustement du modèle
+    model <- lm(formula, data = data)
+    models[[var]] <- model
+    
+    # Noms des colonnes à ajouter
+    nom_modeled <- paste0(var, "_modeled")
+    nom_ano <- paste0(var, "_ano")
+    
+    # Ajout des colonnes au data.frame
+    data[[nom_modeled]] <- as.numeric(predict(model, newdata = data))
+    data[[nom_ano]] <- data[[var]] - data[[nom_modeled]]
+  }
+  
+  return(list(data = data, models = models))
+}
+
+
 #' Plot clustering results. Attention, figpath doit etre défini dans l'environnement global.
 #' 
 #' @param data Data frame containing the data
@@ -101,6 +144,8 @@ old_plot_clustering_results <- function(data, clcolname, sub_dir, nom, windu = w
   print(cluster_count)
 }
 
+
+#### version OK
 plot_clustering_results <- function(data, clcolname, sub_dir, nom, 
                                     vars_dict = list(
                                       t2m_ano = "Anomalies de température_a_2m",

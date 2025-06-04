@@ -6,17 +6,7 @@ author: Lila Cassan (d'après Ruben Pressenda)
 
 # Import des librairies
 
-```{r}
-suppressPackageStartupMessages(library(dendextend))
-suppressPackageStartupMessages(library(mclust))
-suppressPackageStartupMessages(library(viridis))
-suppressPackageStartupMessages(library(scales))
-suppressPackageStartupMessages(library(tidyverse))
-suppressPackageStartupMessages(library(circular))
-suppressPackageStartupMessages(library(timetk))
-suppressPackageStartupMessages(library(rlang))
-suppressPackageStartupMessages(library(reshape2))
-suppressPackageStartupMessages(library(readr))
+```{r, warnings=FALSE, message=FALSE}
 library("maps")
 library("lubridate")
 library("openair")
@@ -58,33 +48,32 @@ library("patchwork") # pour aligner les axes de ggplots
 # enregistrement des figures
 savefig = TRUE
 
-windows = FALSE
-
-# chemin d'enregistrement des figures
-if (windows) {
-  figpath = "E:\\_stageCO2\\figures\\clusteringmeteo"
-} else {
-figpath = "/Volumes/T7_Shield/_stageCO2/figures/clusteringmeteo"
-}
+figpath = "./outputs/figures/clustering_meteo_ERA5"
 ```
 
 # Chargement des données ERA5
 
 ```{r}
-if (windows) {
-  setwd("E:\\_stageCO2\\data\\ECMWF")
-} else {
-  setwd("/Volumes/T7_Shield/_stageCO2/data/ECMWF")
-}
-getwd()
-nc_windu <- nc_open("windu.nc")
-nc_windv <- nc_open("windv.nc")
-nc_t2m <- nc_open("temperature_2m.nc")
-nc_d2m <- nc_open("dewpoint_temperature.nc") # point de rosée pour calculer l'humidité relative
-nc_surfacepressure <- nc_open("surfacepressure.nc")
-nc_totalprecipitation <- nc_open("total_precipitation.nc")
-nc_radiation <- nc_open("surf_sol_rad_downwards.nc")
-nc_ablh <- nc_open("boundarylayerheight.nc")
+# couleurs pour plot en fonction des saisons
+saison_colors <- c("DJF" = "deepskyblue3",    
+                   "MAM" = "springgreen4",
+                   "JJA" = "gold",     
+                   "SON" = "orangered1")
+
+```
+
+```{r}
+
+pathECMWF = "./data/raw/ECMWF/atLCPcoords/"
+nc_windu <- nc_open(file.path(pathECMWF, "windu.nc"))
+nc_windv <- nc_open(file.path(pathECMWF, "windv.nc"))
+nc_t2m <- nc_open(file.path(pathECMWF, "temperature_2m.nc"))
+nc_d2m <- nc_open(file.path(pathECMWF, "dewpoint_temperature.nc")) # point de rosée pour calculer l'humidité relative
+nc_surfacepressure <- nc_open(file.path(pathECMWF, "surfacepressure.nc"))
+nc_totalprecipitation <- nc_open(file.path(pathECMWF, "total_precipitation.nc"))
+nc_radiation <- nc_open(file.path(pathECMWF, "surf_sol_rad_downwards.nc"))
+nc_ablh <- nc_open(file.path(pathECMWF, "boundarylayerheight.nc"))
+
 
 time <- ncvar_get(nc_t2m, "valid_time") 
 
@@ -172,26 +161,11 @@ saison_colors <- c("DJF" = "deepskyblue3",
                    "JJA" = "gold",     
                    "SON" = "orangered1")
 
-#on plot les précipitations pour 2018 par mois(moyenne)
-
-dataset %>%
-  filter(year == 2018) %>%
-  group_by(month) %>%
-  summarise(monthly_precipitation = sum(totalprecipitation, na.rm = TRUE)) %>%
-  ggplot(aes(x = month, y = monthly_precipitation)) +
-  geom_bar(stat = "identity", fill = "darkblue") +
-  scale_x_continuous(breaks = 1:12, labels = month.abb) +
-  labs(title = "Monthly precipitation in 2018 by month Longchamp, ERA5", x = "Month", y = "Total precipitation (mm)") +
-  theme_minimal()
-
-
-
-head(dataset)
 ```
 
 ```{r}
 wind <- windRose(dataset, ws = "wind_speed", wd = "wind_dir", type = "saison", paddle = F, border = T,
-         key.header = "MAR", key.footer = "Vitesse du vent (m/s)", 
+         key.header = "ERA5atLCPcoords", key.footer = "Vitesse du vent (m/s)", 
          key.position = "bottom", key.width = 0.5, 
          key.height = 0.5, key.size = 1.5, key.text.size = 1.5, 
          key.text.angle = 0, key.text.color = "black", key.text.font = 2, 
@@ -239,9 +213,10 @@ for (varname in names(vars_to_plot)) {
 }
 ```
 
-# TheilSen (ne pas exécuter)
+# TheilSen
 
-```{r}
+```{r, eval = FALSE}
+# eval = FALSE pour ne pas exécuter cette partie
 theilT <- TheilSen(
   dataset,
   pollutant = "t2m",
@@ -283,7 +258,8 @@ if (savefig) {
 
 ## Retrait de la tendance à partir du growth rate de TheilSen
 
-```{r}
+```{r, eval = FALSE}
+# eval = FALSE pour ne pas exécuter cette partie}
 date_pivot2 <- median(dataset$datejulian, na.rm = TRUE)
 date_pivot <- as.integer(trunc(julian.POSIXt("2022-01-01 00:00:00"))) ## à modifier pour prendre la date médiane ????
 
@@ -1095,5 +1071,3 @@ mean_dayanddn <- na.omit(mean_dayanddn)
 mean_dayanddn$daynight_acp <- b
 rm(b)
 ```
-
-
