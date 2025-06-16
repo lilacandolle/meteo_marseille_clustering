@@ -38,16 +38,13 @@ nc_t2m_era5 <- nc_open("./data/raw/ECMWF/MARforcomparison/20222023_MARcoords_ERA
 nc_tp_era5 <- nc_open("./data/raw/ECMWF/MARforcomparison/20222023_MARcoords_ERA5_totalprecipitation.nc")
 
 # ERA5 land
-nc_windu_era5land <- nc_open("./data/raw/ECMWF/ERA5land/windu_01062022.nc")
-nc_windv_era5land <- nc_open("./data/raw/ECMWF/ERA5land/windv_01062022.nc")
-nc_t2m_era5land <- nc_open("./data/raw/ECMWF/ERA5land/t2m_01062022.nc")
-nc_windu_era5land_2 <- nc_open("./data/raw/ECMWF/ERA5land/windu_07122022.nc")
-nc_windv_era5land_2 <- nc_open("./data/raw/ECMWF/ERA5land/windv_07122022.nc")
-nc_t2m_era5land_2 <- nc_open("./data/raw/ECMWF/ERA5land/t2m_07122022.nc")
-# puis on les assemble parce qu'ils comportent les mêmes variables mais à des moments différents
-nc_windu_era5land <- ncvar_append(nc_windu_era5land, nc_windu_era5land_2)
-nc_windv_era5land <- ncvar_append(nc_windv_era5land, nc_windv_era5land_2)
-nc_t2m_era5land <- ncvar_append(nc_t2m_era5land, nc_t2m_era5land_2)
+nc_windu_era5_land <- nc_open("./data/raw/ECMWF/ERA5land/windu_2022.nc")
+nc_windv_era5_land <- nc_open("./data/raw/ECMWF/ERA5land/windv_2022.nc")
+nc_t2m_era5_land <- nc_open("./data/raw/ECMWF/ERA5land/t2m_2022.nc")
+nc_ssrd_era5_land <- nc_open("./data/raw/ECMWF/ERA5land/ssrd_2022.nc")
+
+# on prend que le point pour era5land de coords 43.4, 5.0
+nc_windu_era5_land <- nc_windu_era5_land[which(nc_windu_era5_land$dim$latitude$vals == 43.0 & nc_windu_era5_land$dim$longitude$vals == 5.0), ]
 
 ```
 
@@ -58,6 +55,7 @@ df_mf$DateTime <- as.POSIXct(strptime(as.character(df_mf$AAAAMMJJHH), format = "
 df <- df_mf %>%
   filter(NUM_POSTE == 13054001)%>%
   select(DateTime, FF, DD, T, RR1)
+
 # on prend que 2022 et 2023 pour df
 df <- df %>%
   filter(DateTime >= as.POSIXct("2022-01-01") & DateTime < as.POSIXct("2024-01-01"))
@@ -82,6 +80,14 @@ df_era5 <- data.frame(
   windv_era5 = ncvar_get(nc_windv_era5, "v10")[valid_indices],
   t2m_era5 = ncvar_get(nc_t2m_era5, "t2m")[valid_indices],
   tp_era5 = ncvar_get(nc_tp_era5, "tp")[valid_indices]
+)
+
+df_era5land <- data.frame(
+  date = ncvar_get(nc_windu_era5_land, "valid_time"),
+  windu_era5_land = ncvar_get(nc_windu_era5_land, "u10"),
+  windv_era5_land = ncvar_get(nc_windv_era5_land, "v10"),
+  t2m_era5_land = ncvar_get(nc_t2m_era5_land, "t2m"),
+  ssrd_era5_land = ncvar_get(nc_ssrd_era5_land, "ssrd")
 )
 
 rm(nc_windu_era5, nc_windv_era5, nc_t2m_era5, nc_tp_era5, time, start_date, end_date, valid_indices)

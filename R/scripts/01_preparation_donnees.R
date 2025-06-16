@@ -141,7 +141,7 @@ df_matin <- dataset %>%
 
 df_matin <- df_matin %>%
   mutate(log10tp = log10(if_else(totalprecipitation == 0, 0.01, totalprecipitation)))
-
+#### Désaisonnalisation ----
 # on désaisonnalise
 vars_to_deseasonalize <- c("t2m", "surfacepressure", "ssrd", "ablh", "relative_humidity")
 res <- fit_regression_multi(df_matin, vars_to_deseasonalize, trend = TRUE)
@@ -197,10 +197,21 @@ df_soir <- dataset %>%
 
 df_soir <- df_soir %>%
   mutate(log10tp = log10(if_else(totalprecipitation == 0, 0.01, totalprecipitation)))
-
+#### Désaisonnalisation ----
 res <- fit_regression_multi(df_soir, vars_to_deseasonalize, trend = TRUE)
 df_soir <- res$data
+
 saveRDS(df_soir, file = "./data/processed/ERA5_df_soir_desaisonnalise.rds")
 rm(res, vars_to_deseasonalize)
 
 #### Préparation des données pour le clustering (il faut faire une matrice qui contient seulement les variables que l'on veut garder et centrer réduire dans une autre matrice)
+df_matin_clustering <- df_matin %>%
+  select(date, t2m_modeled, surfacepressure_modeled, ssrd_modeled, ablh_modeled, relative_humidity_modeled, windu, windv) %>%
+  mutate(across(everything(), ~ scale(.) %>% as.vector())) # centrer et réduire
+
+df_matinhiver_cl <- df_clustering %>%
+  filter(saison == "DJF") %>%
+  select(-saison)
+
+saveRDS(df_matinhiver_cl, file = "./data/processed/ERA5_df_matinhiver_cl.rds")
+saveRDS(df_matin_clustering, file = "./data/processed/ERA5_df_matin_clustering.rds")
