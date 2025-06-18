@@ -4,12 +4,13 @@ library(dplyr)
 library(tidyr)
 library(foehnix)
 source("./R/functions/clustering_functions.R")
+source("./R/functions/extract_ncdf.R")
 
 # ce script permet de créer un dataset avec les données ERA5 à partir des fichiers netcdf
 
 #### Chargement des données ERA5 -------
 ## On charge les fichiers
-pathECMWF = "./data/raw/ECMWF/atLCPcoords"
+pathECMWF = "data/raw/ECMWF/atLCPcoords"
 nc_windu <- nc_open(file.path(pathECMWF, "windu.nc"))
 nc_windv <- nc_open(file.path(pathECMWF, "windv.nc"))
 nc_t2m <- nc_open(file.path(pathECMWF, "temperature_2m.nc"))
@@ -79,6 +80,7 @@ rm(ddff)
 t2m <- t2m - 273.15
 d2m <- d2m - 273.15
 
+
 dataset <- data.frame(
   date = date,
   datejulian = datejulian,
@@ -112,8 +114,51 @@ saveRDS(dataset, file = "./data/processed/ERA5_dataset.rds")
 rm(pathECMWF)
 
 
+#### Chargement du dataset ERA5 land
+pathERA5land <- "data/raw/ECMWF/ERA5land"
+# on définit les chemins pour chaque variable
+ERA5land_windu <- file.path(pathERA5land, "windu_20162022.nc")
+ERA5land_windv <- file.path(pathERA5land, "windv_20162022.nc")
+ERA5land_t2m <- file.path(pathERA5land, "t2m_20162022.nc")
+# on extrait les données au point (fin le nearest) d'intérêt (LCP)
+lon <- 5.3950
+lat <- 43.3059
+windu <- extract_point_fromcoords(ERA5land_windu, "u10", lat, lon)
+windv <- extract_point_fromcoords(ERA5land_windv, "v10", lat, lon)
+t2m <- extract_point_fromcoords(ERA5land_t2m, "t2m", lat, lon)
 
+# on ferme les netcdf
+rm(ERA5land_windu, ERA5land_windv, ERA5land_t2m)
 
+# on convertit le temps en date
+start_date <- as.POSIXct("1970-01-01 00:00:00", tz = "UTC")
+
+# on ordonne par date les trois df parce qu'il a pu y avoir des problèmes lors de la concaténation des netcdf
+windu <- windu[order(windu$time), ]
+windv <- windv[order(windv$time), ]
+t2m <- t2m[order(t2m$time), ]
+
+# on vérifie que les dates sont les mêmes
+if (!all(windu$time == t2m$time) || !all(windu$time == windv$time)) {
+  stop("Les dates des données ERA5 land ne correspondent pas.")
+} else {
+  message("Les dates des données ERA5 land correspondent.")
+}
+
+#### Création d'un dataset avec les données ERA5 land pour LCP -------
+df_ERA5land <- data.frame(
+  date = start_date + t2m$time,
+  datejulian = as.integer(trunc(julian.POSIXt(windu$time))),
+  time = as.numeric(difftime(windu$time, min(windu$time), units = "days")) / 365.25, # en années depuis le début des mesures
+  windu = windu$value,
+  windv = windv$value,
+  t2m = t2m$value - 273.15 # conversion en degrés Celsius
+)
+# on plot la température pour vérifier que ça a du sens
+plot(df_ERA5land$date, df_ERA5land$t2m, type = "l", main = "Température 2m ERA5 land", xlab = "Date", ylab = "Température (°C)")
+
+# on télécharge les données de l'ERA5 land pour LCP
+saveRDS(df_ERA5land, file = "./data/processed/ERA5land_df_LCP.rds")
 
 #### Création d'un jeu de données en prenant la moyenne sur la plage horaire définie -------
 df_matin <- dataset %>%
@@ -141,34 +186,7 @@ df_matin <- dataset %>%
 
 df_matin <- df_matin %>%
   mutate(log10tp = log10(if_else(totalprecipitation == 0, 0.01, totalprecipitation)))
-#### Désaisonnalisation ----
-# on désaisonnalise
-vars_to_deseasonalize <- c("t2m", "surfacepressure", "ssrd", "ablh", "relative_humidity")
-res <- fit_regression_multi(df_matin, vars_to_deseasonalize, trend = TRUE)
-df_matin <- res$data
-
-ggplot(df_matin, aes(x = date, y = t2m)) +
-  geom_point(color = "blue") +  # Afficher les points des données
-  geom_line(aes(y = res$models$t2m$coefficients[1] + res$models$t2m$coefficients[2] * time), color = "black") +  # Afficher la courbe de régression
-  geom_line(aes(y = t2m_modeled), color = "red") +  # Afficher la courbe de régression
-  labs(title = "Température à 2m le matin  et cycle saisonnier", x = "Temps (années)", y = "Température 2m (°C)") +
-  theme_minimal()
-
-ggplot(df_matin, aes(x = date, y = surfacepressure)) +
-  geom_point(color = "blue") +  # Afficher les points des données
-  geom_line(aes(y = res$models$surfacepressure$coefficients[1] + res$models$surfacepressure$coefficients[2] * time), color = "black") +  # Afficher la courbe de régression
-  geom_line(aes(y = surfacepressure_modeled), color = "red") +  # Afficher la courbe de régression
-  labs(title = "Pression de surface le matin et cycle saisonnier", x = "Temps (années)", y = "Pression de surface (hPa)") +
-  theme_minimal()
-
-ggplot(df_matin, aes(x = date, y = ssrd)) +
-  geom_point(color = "blue") +  # Afficher les points des données
-  geom_line(aes(y = res$models$ssrd$coefficients[1] + res$models$ssrd$coefficients[2] * time), color = "black") +  # Afficher la courbe de régression
-  geom_line(aes(y = ssrd_modeled), color = "red") +  # Afficher la courbe de régression
-  labs(title = "Radiation solaire downwards en surface le matin et cycle saisonnier", x = "Temps (années)", y = "Radiation solaire de surface (W/m²)") +
-  theme_minimal()
-
-saveRDS(df_matin, file = "./data/processed/ERA5_df_matin_desaisonnalise.rds")
+saveRDS(df_matin, file = "./data/processed/ERA5_df_matin.rds")
 
 
 #### Création d'un jeu de données en prenant la moyenne sur la plage horaire définie -------
@@ -197,12 +215,8 @@ df_soir <- dataset %>%
 
 df_soir <- df_soir %>%
   mutate(log10tp = log10(if_else(totalprecipitation == 0, 0.01, totalprecipitation)))
-#### Désaisonnalisation ----
-res <- fit_regression_multi(df_soir, vars_to_deseasonalize, trend = TRUE)
-df_soir <- res$data
+saveRDS(df_soir, file = "./data/processed/ERA5_df_soir.rds")
 
-saveRDS(df_soir, file = "./data/processed/ERA5_df_soir_desaisonnalise.rds")
-rm(res, vars_to_deseasonalize)
 
 #### Préparation des données pour le clustering (il faut faire une matrice qui contient seulement les variables que l'on veut garder et centrer réduire dans une autre matrice)
 df_matin_clustering <- df_matin %>%

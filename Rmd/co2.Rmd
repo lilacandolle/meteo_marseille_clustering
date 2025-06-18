@@ -6,6 +6,7 @@ output: html_document
 # CO2
 
 ```{r}
+windows = TRUE
 if (windows) {
   dataset_CO2 <- get(load("E:/_stageCO2/data/CO2/données CO2 par minutes (2016-2022) corrigées calibrées/dataset_CAV_cal_min_NF.RData"))
   figpathCO2 = "E:/_stageCO2/figures/co2"
