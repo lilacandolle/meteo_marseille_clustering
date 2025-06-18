@@ -15,15 +15,23 @@ saison_colors <- c("DJF" = "deepskyblue3",
 ```
 
 ```{r}
-dataset <- readRDS("./data/processed/ERA5_dataset.rds")
+ERA5dataset <- readRDS("./data/processed/ERA5_dataset.rds")
+ERA5land <- readRDS("./data/processed/ERA5land_df_LCP.rds")
 ```
 ```{r}
 # roses des vents par saison
-wind <- windRose(dataset, type = "saison", paddle = F, border = T,
+wind <- windRose(ERA5dataset, type = "saison", paddle = F, border = T,
          key.header = "ERA5 at LCPcoords", key.footer = "Vitesse du vent (m/s)", 
-         breaks = c(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20),
+         breaks = c(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20)
          )
 ```
+```{r}
+wind <- windRose(ERA5land, ws = "ws", wd = "wd", type = 'saison', paddle = F, border = T,
+         key.header = "ERA5-land at LCPcoords", key.footer = "Vitesse du vent (m/s)", 
+         breaks = c(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20)
+         )
+```
+
 ```{r}
 cycle_diurne_meteo <- dataset %>%
   group_by(saison, hour) %>%

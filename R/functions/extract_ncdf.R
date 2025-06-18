@@ -26,10 +26,16 @@ extract_point_fromcoords <- function(ncfile, varname, target_lat, target_lon) {
   lat_index <- which.min(abs(lats - target_lat))
   lon_index <- which.min(abs(lons - target_lon))
   
+  print(paste("Target lat/lon:", target_lat, target_lon))
+  print(paste("Closest lat:", lats[lat_index], "Closest lon:", lons[lon_index]))
+  
   # Lire la variable
   var_dims <- ncvar_get(nc, varname, 
                         start = c(lon_index, lat_index, 1), 
                         count = c(1, 1, -1))  # -1 = toute la dimension "time"
+  if (all(is.na(var_dims))) {
+    warning("Toutes les valeurs sont NA à ce point. Peut-être un point sans données ?")
+  }
   
   # Lire le temps
   time <- ncvar_get(nc, "valid_time")

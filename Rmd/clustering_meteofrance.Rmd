@@ -12,7 +12,8 @@ library(dplyr)
 library(tidyr)
 library(lubridate)
 library(openair)
-source("clustering_functions.R")
+getwd()
+source("R/functions/clustering_functions.R")
 library(foehnix)
 suppressPackageStartupMessages(library(dendextend))
 library(dendextend)
@@ -25,16 +26,9 @@ mac = FALSE
 ```
 
 ```{r}
-if (mac) {
-  # Mac
-  df <- read.csv("/Volumes/T7_Shield/_stageCO2/data/Meteo_France/LCPMARVAL_20162025.csv", header = TRUE, sep = ",")
-  figpath = "/Volumes/T7_Shield/_stageCO2/figures_meteofrance/"
-} else {
-  # Windows
-  df <- read.csv("E:\\_stageCO2\\data\\Meteo_France\\LCPMARVAL_20162025.csv", header = TRUE, sep = ",")
-  figpath <- "E:\\_stageCO2\\fig_meteofrance\\"
-}
 
+df <- read.csv("data/raw/MeteoFrance/LCPMARVAL_20162025.csv", header = TRUE, sep = ",")
+figpath <- "data/figures/meteofrance"
 # changer la colonne AAAAMMJJHH en POSIXct
 df$DateTime <- as.POSIXct(strptime(as.character(df$AAAAMMJJHH), format = "%Y%m%d%H"), tz = "UTC")
 

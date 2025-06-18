@@ -1,0 +1,155 @@
+---
+title: "01_comparison_MAR"
+output: html_document
+---
+
+```{r, setup} 
+# on fait en sorte que le wd soit bon aussi quand on exécute chunk by chunk
+if (interactive()) {
+  setwd(rprojroot::find_rstudio_root_file())
+}
+getwd()
+```
+
+```{r, results='hide', warnings = FALSE, message= FALSE}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(openair)
+library(foehnix)
+library(metR)
+library(ncdf4)
+library(patchwork)
+# paramètres pour l'exécution du code
+savefig = TRUE
+getwd()
+```
+```{r}
+# chargement des données
+df_mf <- readRDS("./data/processed/MAR.rds")
+df_ERA5 <- readRDS("./data/processed/ERA5_dataset_MAR.rds")
+df_ERA5land <- readRDS("./data/processed/ERA5land_df_435_52.rds")
+```
+
+```{r}
+figpath = ("./outputs/figures/comparison_MAR/")
+```
+```{r}
+# on prend que les données de 2022 pour les df, jusqu'au 31 décembre 2022 inclus
+df_ERA5 <- df_ERA5 %>%
+  select(-c(datejulian, flag_dn, hour, month, year, saison))
+df_ERA5 <- df_ERA5 %>%
+  filter(date >= as.POSIXct("2022-01-01", tz = "UTC") & date < as.POSIXct("2023-01-01", tz = "UTC")) %>%
+  rename_with(~ paste0(.x, "_era5"), .cols = -date) 
+
+df_ERA5land <- df_ERA5land %>%
+  select(-c(datejulian, flag_dn, time, saison))
+df_ERA5land <- df_ERA5land %>%
+  filter(date >= as.POSIXct("2022-01-01", tz = "UTC") & date < as.POSIXct("2023-01-01", tz = "UTC")) %>%
+  
+  rename_with(~ paste0(.x, "_era5land"), .cols = -date)
+
+df_mf <- df_mf %>%
+  select(-c(NUM_POSTE, NOM_USUEL, flag_dn, saison))
+df_mf <- df_mf %>%
+  filter(date >= as.POSIXct("2022-01-01", tz = "UTC") & date < as.POSIXct("2023-01-01", tz = "UTC")) %>%
+  rename_with(~ paste0(.x, "_mf"), .cols = -date)
+
+# on joint les toirs
+df <- df_mf %>%
+  left_join(df_ERA5, by = "date") %>%
+  left_join(df_ERA5land, by = "date")
+
+```
+
+```{r}
+# on prend 3 jours pour faire des graphiques
+df_3j <- df %>%
+  filter(date >= as.POSIXct("2022-01-10", tz = "UTC") & date < as.POSIXct("2022-01-14", tz = "UTC"))
+# on crée une colonne avec les heures dsepuis le début du df
+df_3j$heures <- as.numeric(difftime(df_3j$date, min(df_3j$date), units = "hours"))
+```
+
+```{r}
+breaks_major <- seq(0, max(df_3j$heures), by = 24)
+breaks_minor <- seq(0, max(df_3j$heures), by = 6)
+
+xlim_common <- range(df_3j$heures, na.rm = TRUE)
+xlim_common <- c(xlim_common[1] - 1, xlim_common[2] + 6)  # ajoute 3h de marge A MODIFIER SI ERREUR GENRE OUTSIDE THE SCALE RANGE
+
+
+a <- ggplot(df_3j, aes(x = heures, y = 0)) +
+  geom_point() +
+  geom_segment(aes(xend = heures + windu_mf, yend = windv_mf), y = 0, arrow = arrow()) +
+  scale_x_continuous(
+    name = NULL,
+    limits = xlim_common,
+    breaks = breaks_major,
+    minor_breaks = breaks_minor,
+    labels = NULL
+  ) +
+  coord_fixed() +
+  theme_minimal() +
+  theme(
+    axis.title.y = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+
+b <- ggplot(df_3j, aes(x = heures, y = 0)) +
+  geom_point() +
+  geom_segment(aes(xend = heures + windu_era5, yend = windv_era5), y = 0, arrow = arrow()) +
+  scale_x_continuous(
+    name = NULL,
+    limits = xlim_common,
+    breaks = breaks_major,
+    minor_breaks = breaks_minor
+  ) +
+  coord_fixed() +
+  theme_minimal() +
+  theme(
+    axis.title.y = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+
+c <- ggplot(df_3j, aes(x = heures, y = 0)) +
+  geom_point() +
+  geom_segment(aes(xend = heures + windu_era5land, yend = windv_era5land), y = 0, arrow = arrow()) +
+  scale_x_continuous(
+    name = NULL,
+    limits = xlim_common,
+    breaks = breaks_major,
+    minor_breaks = breaks_minor,
+    labels = function(x) format(min(df_3j$date) + x * 3600,  "%Y-%m-%d %H:%M")
+  ) +
+  coord_fixed() +
+  theme_minimal() +
+  theme(
+    axis.title.y = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+a / b /c
+
+summary(df_3j$windu_mf)
+summary(df_3j$windu_era5)
+summary(df_3j$windv_mf)
+summary(df_3j$windv_era5)
+summary(df_3j$windu_era5land)
+summary(df_3j$windv_era5land)
+```
+```{r}
+rmse_ff <- sqrt(mean((df$FF - df$FF_era5)^2, na.rm = TRUE))
+print(paste("RMSE FF:", round(rmse_ff, 2)))
+bias_ff <- mean(df$FF - df$FF_era5, na.rm = TRUE)
+print(paste("Bias FF:", round(bias_ff, 2)))
+rmse_t <- sqrt(mean((df$T - df$t2m_era5)^2, na.rm = TRUE))
+print(paste("RMSE T:", round(rmse_t, 2)))
+bias_t <- mean(df$T - df$t2m_era5, na.rm = TRUE)
+print(paste("Bias T:", round(bias_t, 2)))
+```
+
+
+

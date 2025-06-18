@@ -42,3 +42,15 @@ df_soir <- res$data
 
 saveRDS(df_soir, file = "./data/processed/ERA5_df_soir_desaisonnalise.rds")
 rm(res, vars_to_deseasonalize)
+
+#### Préparation des données pour le clustering (il faut faire une matrice qui contient seulement les variables que l'on veut garder et centrer réduire dans une autre matrice)
+df_matin_clustering <- df_matin %>%
+  select(date, t2m_modeled, surfacepressure_modeled, ssrd_modeled, ablh_modeled, relative_humidity_modeled, windu, windv) %>%
+  mutate(across(everything(), ~ scale(.) %>% as.vector())) # centrer et réduire
+
+df_matinhiver_cl <- df_clustering %>%
+  filter(saison == "DJF") %>%
+  select(-saison)
+
+saveRDS(df_matinhiver_cl, file = "./data/processed/ERA5_df_matinhiver_cl.rds")
+saveRDS(df_matin_clustering, file = "./data/processed/ERA5_df_matin_clustering.rds")
