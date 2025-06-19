@@ -1,9 +1,12 @@
 ---
 title: "01_comparison_MAR"
 output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
 ---
 
-```{r, setup} 
+```{r, setup}
 # on fait en sorte que le wd soit bon aussi quand on exécute chunk by chunk
 if (interactive()) {
   setwd(rprojroot::find_rstudio_root_file())
@@ -25,6 +28,7 @@ library(patchwork)
 savefig = TRUE
 getwd()
 ```
+
 ```{r}
 # chargement des données
 df_mf <- readRDS("./data/processed/MAR.rds")
@@ -35,6 +39,7 @@ df_ERA5land <- readRDS("./data/processed/ERA5land_df_435_52.rds")
 ```{r}
 figpath = ("./outputs/figures/comparison_MAR/")
 ```
+
 ```{r}
 # on prend que les données de 2022 pour les df, jusqu'au 31 décembre 2022 inclus
 df_ERA5 <- df_ERA5 %>%
@@ -72,51 +77,49 @@ df_3j$heures <- as.numeric(difftime(df_3j$date, min(df_3j$date), units = "hours"
 ```
 
 ```{r}
+rmse_ff <- sqrt(mean((df$FF - df$FF_era5)^2, na.rm = TRUE))
+print(paste("RMSE FF:", round(rmse_ff, 2)))
+bias_ff <- mean(df$FF - df$FF_era5, na.rm = TRUE)
+print(paste("Bias FF:", round(bias_ff, 2)))
+rmse_t <- sqrt(mean((df$T - df$t2m_era5)^2, na.rm = TRUE))
+print(paste("RMSE T:", round(rmse_t, 2)))
+bias_t <- mean(df$T - df$t2m_era5, na.rm = TRUE)
+print(paste("Bias T:", round(bias_t, 2)))
+summary(df_3j$windu_mf)
+summary(df_3j$windu_era5)
+summary(df_3j$windv_mf)
+summary(df_3j$windv_era5)
+summary(df_3j$windu_era5land)
+summary(df_3j$windv_era5land)
+```
+
+```{r}
+# plot as Menut
+df_3j_long <- data.frame(
+  heures = rep(df_3j$heures, 3),
+  u = c(df_3j$windu_mf, df_3j$windu_era5, df_3j$windu_era5land),
+  v = c(df_3j$windv_mf, df_3j$windv_era5, df_3j$windv_era5land),
+  source = rep(c("Météo France", "ERA5", "ERA5-Land"), each = nrow(df_3j))
+)
+
+xlim_common <- range(df_3j$heures, na.rm = TRUE)
 breaks_major <- seq(0, max(df_3j$heures), by = 24)
 breaks_minor <- seq(0, max(df_3j$heures), by = 6)
 
-xlim_common <- range(df_3j$heures, na.rm = TRUE)
-xlim_common <- c(xlim_common[1] - 1, xlim_common[2] + 6)  # ajoute 3h de marge A MODIFIER SI ERREUR GENRE OUTSIDE THE SCALE RANGE
+# Flèche d'échelle uniquement pour Météo France
+ref_arrow <- data.frame(
+  heures = xlim_common[1] + 3,
+  v = -9,
+  u = 5,
+  vv = 0,
+  source = "Météo France",
+  label = "5 m/s",
+  stringsAsFactors = FALSE
+)
 
-
-a <- ggplot(df_3j, aes(x = heures, y = 0)) +
-  geom_point() +
-  geom_segment(aes(xend = heures + windu_mf, yend = windv_mf), y = 0, arrow = arrow()) +
-  scale_x_continuous(
-    name = NULL,
-    limits = xlim_common,
-    breaks = breaks_major,
-    minor_breaks = breaks_minor,
-    labels = NULL
-  ) +
-  coord_fixed() +
-  theme_minimal() +
-  theme(
-    axis.title.y = element_blank(),
-    axis.text.y = element_blank(),
-    axis.ticks.y = element_blank()
-  )
-
-b <- ggplot(df_3j, aes(x = heures, y = 0)) +
-  geom_point() +
-  geom_segment(aes(xend = heures + windu_era5, yend = windv_era5), y = 0, arrow = arrow()) +
-  scale_x_continuous(
-    name = NULL,
-    limits = xlim_common,
-    breaks = breaks_major,
-    minor_breaks = breaks_minor
-  ) +
-  coord_fixed() +
-  theme_minimal() +
-  theme(
-    axis.title.y = element_blank(),
-    axis.text.y = element_blank(),
-    axis.ticks.y = element_blank()
-  )
-
-c <- ggplot(df_3j, aes(x = heures, y = 0)) +
-  geom_point() +
-  geom_segment(aes(xend = heures + windu_era5land, yend = windv_era5land), y = 0, arrow = arrow()) +
+ggplot(df_3j_long, aes(x = heures, y = 0)) +
+  geom_segment(aes(xend = heures + u, yend = v), arrow = arrow(length = unit(0.15, "cm"))) +
+  facet_wrap(~source, ncol = 1) +
   scale_x_continuous(
     name = NULL,
     limits = xlim_common,
@@ -130,26 +133,21 @@ c <- ggplot(df_3j, aes(x = heures, y = 0)) +
     axis.title.y = element_blank(),
     axis.text.y = element_blank(),
     axis.ticks.y = element_blank()
+  ) +
+  geom_segment(
+    data = ref_arrow,
+    aes(x = heures, y = v, xend = heures + u, yend = v + vv),
+    inherit.aes = FALSE,
+    arrow = arrow(length = unit(0.15, "cm")),
+    color = "red"
+  ) +
+  geom_text(
+    data = ref_arrow,
+    aes(x = heures + u + 1, y = v + vv, label = label),
+    inherit.aes = FALSE,
+    hjust = 0,
+    vjust = 0.5,
+    size = 3
   )
-a / b /c
 
-summary(df_3j$windu_mf)
-summary(df_3j$windu_era5)
-summary(df_3j$windv_mf)
-summary(df_3j$windv_era5)
-summary(df_3j$windu_era5land)
-summary(df_3j$windv_era5land)
 ```
-```{r}
-rmse_ff <- sqrt(mean((df$FF - df$FF_era5)^2, na.rm = TRUE))
-print(paste("RMSE FF:", round(rmse_ff, 2)))
-bias_ff <- mean(df$FF - df$FF_era5, na.rm = TRUE)
-print(paste("Bias FF:", round(bias_ff, 2)))
-rmse_t <- sqrt(mean((df$T - df$t2m_era5)^2, na.rm = TRUE))
-print(paste("RMSE T:", round(rmse_t, 2)))
-bias_t <- mean(df$T - df$t2m_era5, na.rm = TRUE)
-print(paste("Bias T:", round(bias_t, 2)))
-```
-
-
-
