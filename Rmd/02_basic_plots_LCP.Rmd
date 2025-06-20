@@ -1,0 +1,486 @@
+---
+title: "02_basic_plots_LCP"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# on fait en sorte que le wd soit bon aussi quand on exécute chunk by chunk
+if (interactive()) {
+  setwd(rprojroot::find_rstudio_root_file())
+}
+getwd()
+```
+
+```{r}
+# load packages
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+library(tidyr)
+library(openair)
+library(dplyr)
+library(viridis)
+```
+
+```{r}
+savefig = TRUE
+figpath = "outputs/figures/basicplots_LCP"
+saison_colors <- c("DJF" = "deepskyblue3",    
+                   "MAM" = "springgreen4",
+                   "JJA" = "gold",     
+                   "SON" = "orangered1")
+
+```
+
+```{r}
+df_meteoCO2 <- readRDS("data/processed/df_meteoCO2_LCP.rds") # créé avec joint_dataset.R
+
+# on filtre les valeurs manquantes
+df_meteoCO2 <- df_meteoCO2 %>%
+  filter(!is.na(windu) & !is.na(windv) & !is.na(ws) & !is.na(wd) & !is.na(t2m) &
+         !is.na(ssrd) & !is.na(surfacepressure) & !is.na(relative_humidity) &
+         !is.na(ablh) & !is.na(CO2_dry_corr_cal))
+```
+
+# Rose du vent
+
+```{r}
+rose_saison <- windRose(df_meteoCO2, type = "saison", paddle = FALSE, border = TRUE,
+                     key.header = "ERA5 Land wind at LCP", key.footer = "Vitesse du vent (m/s)",
+         breaks = c(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20))
+```
+
+```{r, eval = savefig}
+png(file = paste0(figpath, "/rose_saisonwindRose_LCP.png"), width = 12, height = 10, units = "in", res = 300)
+plot(rose_saison)
+dev.off()
+```
+
+# Cycle diurne des variables
+
+```{r}
+vars = c("windu", "windv", "ws", "wd","t2m", "ssrd", "surfacepressure", "relative_humidity", "ablh", "CO2_dry_corr_cal")
+
+cycle_diurne <- df_meteoCO2 %>%
+  group_by(hour = hour(date), saison) %>%
+  summarise(across(all_of(vars), \(x) mean(x, na.rm = TRUE)), .groups = "drop")
+
+vars_to_plot <- list(
+  "windu" = "Cycle diurne du vent zonal (u) (ERA5 Land)",
+  "windv" = "Cycle diurne du vent méridien (v) (ERA5land)",
+  "ws" = "Cycle diurne de la vitesse du vent (m/s) (ERA5 Land)",
+  "wd" = "Cycle diurne de la direction du vent (ERA5 Land)",
+  "t2m" = "Cycle diurne de la température à 2 m (°C)(ERA5 Land)",
+  "ssrd" = "Cycle diurne du rayonnement solaire (W/m2) (ERA5 Land)",
+  "surfacepressure" = "Cycle diurne de la pression à la surface (hPa)(ERA5 Land)",
+  "relative_humidity" = "Cycle diurne de l'humidité relative (%) (ERA5)",
+  "ablh" = "Cycle diurne de la hauteur de couche limite (m) (ERA5)",
+  "CO2_dry_corr_cal" = "Cycle diurne du CO2 (ppm)"
+)
+
+for (varname in names(vars_to_plot)) {
+  p <- ggplot(cycle_diurne, aes_string(x = "hour", y = varname, color = "saison")) +
+    geom_line() +
+    scale_color_manual(values = saison_colors) +
+    labs(title = vars_to_plot[[varname]],
+         x = "Heure",
+         y = "Valeur moyenne",
+         color = "Saison") +
+    theme_minimal()
+
+  print(p)
+  
+  ggsave(paste0(figpath, "/cycle_", varname, ".png"), plot = p, width = 8, height = 5, bg = "white", dpi = 300)
+}
+
+```
+
+# Variables vs autre
+
+```{r}
+ggplot(df_meteoCO2, aes(x = t2m, y = CO2_dry_corr_cal, color = saison)) +
+  geom_point(alpha = 0.5) +
+  scale_color_manual(values = saison_colors) +
+  labs(title = "CO2 vs Température à 2 m",
+       x = "Température à 2 m (°C)",
+       y = "CO2 (ppm)",
+       color = "Saison") +
+  ylim(350,600) +
+  theme_minimal()
+```
+
+On a des pics pour DJF et pour une température inf à 15°C
+
+```{r, eval = savefig}
+ggsave(paste0(figpath, "/CO2_vs_t2m.png"), width = 16, height = 10, bg = "white", dpi = 300)
+```
+
+```{r}
+a <- ggplot(df_meteoCO2, aes(x = ws, y = CO2_dry_corr_cal, color = wd)) +
+  geom_point() +
+  scale_color_viridis(option = "H")+
+  labs(title = "CO2 vs Vitesse du vent",
+       x = "Vitesse du vent (m/s)",
+       y = "CO2 (ppm)",
+       color = "Direction du vent (°)") +
+  ylim(350,600) +
+  theme_minimal()
+print(a)
+
+# pareil  mais avec une barre hz pour le quantile 0.99
+a <- a +
+  geom_hline(yintercept = quantile(df_meteoCO2$CO2_dry_corr_cal, probs = 0.99), linetype = "dashed", color = "black")
+print(a)
+```
+
+```{r, eval = savefig}
+ggsave(paste0(figpath, "/CO2_vs_ws_wd.png"), plot = a, width = 16, height = 10, bg = "white", dpi = 300)
+```
+
+```{r}
+ggplot(df_meteoCO2, aes(x = ablh, y = CO2_dry_corr_cal, color = saison)) +
+  geom_point() +
+  scale_color_manual(values = saison_colors) +
+  labs(title = "CO2 vs Hauteur de la couche limite",
+       x = "Hauteur de la couche limite (m)",
+       y = "CO2 (ppm)",
+       color = "Saison") +
+  ylim(350,600) +
+  theme_minimal()
+```
+
+```{r, eval = savefig}
+ggsave(paste0(figpath, "/CO2_vs_ablh.png"), width = 16, height = 10, bg = "white", dpi = 300)
+
+```
+
+```{r}
+ggplot(df_meteoCO2, aes(x = ablh, y = CO2_dry_corr_cal, color = t2m)) +
+  geom_point() +
+  scale_color_viridis(option = "H") +
+  labs(title = "CO2 vs Hauteur de la couche limite",
+       x = "Hauteur de la couche limite (m)",
+       y = "CO2 (ppm)",
+       color = "Température à 2 m (°C)") +
+  ylim(350,600) +
+  theme_minimal()
+```
+
+```{r, eval = savefig}
+ggsave(paste0(figpath, "/CO2_vs_ablh_t2m.png"), width = 16, height = 10, bg = "white", dpi = 300)
+```
+
+```{r}
+sub <- df_meteoCO2 %>%
+  filter(CO2_dry_corr_cal < 600)
+ggplot(sub, aes(x = ws, y = ablh, color = CO2_dry_corr_cal)) +
+  geom_point() +
+  scale_color_viridis(option = "H") +
+  labs(title = "Hauteur de la couche limite vs Vitesse du vent",
+       x = "Vitesse du vent (m/s)",
+       y = "Hauteur de la couche limite (m)",
+       color = "CO2 (ppm)") +
+  theme_minimal()
+rm(sub)
+```
+
+```{r, eval = savefig}
+ggsave(paste0(figpath, "/ablh_vs_ws_CO2.png"), width = 16, height = 10, bg = "white", dpi = 300)
+
+```
+
+```{r}
+ggplot(df_meteoCO2, aes(x = ws, y = ablh, color = wd)) +
+  geom_point() +
+#  scale_color_gradientn(colours = hcl(seq(0, 360, length.out = 361), 100, 65)) + # pour que ça soit une palette circulaire pour les angles
+  scale_color_viridis(option = "H") +
+  labs(title = "Hauteur de la couche limite vs Vitesse du vent",
+       x = "Vitesse du vent (m/s)",
+       y = "Hauteur de la couche limite (m)",
+       color = "Direction du vent (°)") +
+  theme_minimal()
+```
+
+```{r, eval = savefig}
+ggsave(paste0(figpath, "/ablh_vs_ws_wd.png"), width = 16, height = 10, bg = "white", dpi = 300)
+```
+
+# Médianes sur CO2 et wind speed le matin et le soir
+
+```{r}
+df_matin <- df_meteoCO2 %>%
+  filter(flag_dn == "matin")
+
+df_soir <- df_meteoCO2 %>%
+  filter(flag_dn == "soir")
+```
+
+```{r}
+# pour des intervalles de 2 m/s entre 0 et 12 m/s, on calcule la médiane de CO2 et wind speed par saison
+df_matin_medianes <- df_matin %>%
+  mutate(ws_bin = cut(ws, breaks = seq(0, 12, by = 2), include.lowest = TRUE)) %>%
+  group_by(ws_bin, saison) %>%
+  summarise(median_CO2 = median(CO2_dry_corr_cal, na.rm = TRUE),
+            median_ws = median(ws, na.rm = TRUE), .groups = "drop")
+
+df_soir_medianes <- df_soir %>%
+  mutate(ws_bin = cut(ws, breaks = seq(0, 12, by = 2), include.lowest = TRUE)) %>%
+  group_by(ws_bin, saison) %>%
+  summarise(median_CO2 = median(CO2_dry_corr_cal, na.rm = TRUE),
+            median_ws = median(ws, na.rm = TRUE), .groups = "drop")
+
+# Plot des médianes pour le matin
+a <- ggplot(df_matin_medianes, aes(x = median_ws, y = median_CO2, color = saison)) +
+  geom_line() +
+  geom_point() +
+  scale_color_manual(values = saison_colors) +
+  labs(title = "Médianes de CO2 et vitesse du vent (5-8h)",
+       x = "Vitesse du vent (m/s)",
+       y = "CO2 (ppm)",
+       color = "Saison") +
+  scale_x_continuous(breaks = seq(0, 12, by = 2)) +
+  theme_minimal()
+print(a)
+
+# le soir
+b <- ggplot(df_soir_medianes, aes(x = median_ws, y = median_CO2, color = saison)) +
+  geom_line() +
+  geom_point() +
+  scale_color_manual(values = saison_colors) +
+  labs(title = "Médianes de CO2 et vitesse du vent (17-22h)",
+       x = "Vitesse du vent (m/s)",
+       y = "CO2 (ppm)",
+       color = "Saison") +
+  scale_x_continuous(breaks = seq(0, 12, by = 2)) +
+  theme_minimal()
+print(b)
+```
+
+```{r, eval = savefig}
+ggsave(paste0(figpath, "/mediane_CO2_ws_matin.png"), plot = a, width = 12, height = 7, bg = "white", dpi = 300)
+ggsave(paste0(figpath, "/mediane_CO2_ws_soir.png"), plot = b, width = 12, height = 7, bg = "white", dpi = 300)
+```
+
+# Médianes sur CO2 et ablh le matin et le soir par saison
+
+```{r}
+df_matin_medianes <- df_matin %>%
+  mutate(ablh_bin = cut(ablh, breaks = seq(0, 1500, by = 100), include.lowest = TRUE)) %>%
+  group_by(ablh_bin, saison) %>%
+  summarise(median_CO2 = median(CO2_dry_corr_cal, na.rm = TRUE),
+            median_ablh = median(ablh, na.rm = TRUE), .groups = "drop")
+df_soir_medianes <- df_soir %>%
+  mutate(ablh_bin = cut(ablh, breaks = seq(0, 1500, by = 100), include.lowest = TRUE)) %>%
+  group_by(ablh_bin, saison) %>%
+  summarise(median_CO2 = median(CO2_dry_corr_cal, na.rm = TRUE),
+            median_ablh = median(ablh, na.rm = TRUE), .groups = "drop")
+
+# Plot des médianes pour le matin
+a <- ggplot(df_matin_medianes, aes(x = median_ablh, y = median_CO2, color = saison)) +
+  geom_line() +
+  geom_point() +
+  scale_color_manual(values = saison_colors) +
+  labs(title = "Médianes de CO2 et hauteur de la couche limite (5-8h)",
+       x = "Hauteur de la couche limite (m)",
+       y = "CO2 (ppm)",
+       color = "Saison") +
+  scale_x_continuous(breaks = seq(0,1500, by = 100)) +
+  theme_minimal()
+print(a)
+# le soir
+b <- ggplot(df_soir_medianes, aes(x = median_ablh, y = median_CO2, color = saison)) +
+  geom_line() +
+  geom_point() +
+  scale_color_manual(values = saison_colors) +
+  labs(title = "Médianes de CO2 et hauteur de la couche limite (17-22h)",
+       x = "Hauteur de la couche limite (m)",
+       y = "CO2 (ppm)",
+       color = "Saison") +
+  scale_x_continuous(breaks = seq(0,1500, by=100)) +
+  theme_minimal()
+print(b)
+```
+
+```{r,eval = savefig}
+ggsave(paste0(figpath, "/mediane_CO2_ablh_matin.png"), plot = a, width = 12, height = 7, bg = "white", dpi = 300)
+ggsave(paste0(figpath, "/mediane_CO2_ablh_soir.png"), plot = b, width = 12, height = 7, bg = "white", dpi = 300)
+
+```
+
+# rose co2
+
+```{r}
+rose <- polarFreq(df_meteoCO2, pollutant = "CO2_dry_corr_cal", statistic = 'mean', min.bin = 10,
+                  key.header = "CO2 mean by wind direction", key.footer = "CO2 (ppm)",
+                  paddle = FALSE, border = FALSE,
+                  main = "Rose du CO2 à LCP")
+
+```
+
+```{r, eval = savefig}
+png(file = paste0(figpath, "/rose_CO2_LCP.png"), width = 12, height = 10, units = "in", res = 300)
+plot(rose)
+dev.off()
+```
+
+# Boxplot du CO2 par mois
+
+```{r}
+# boxplot du CO2 par mois
+df_meteoCO2 <- df_meteoCO2 %>%
+  filter(!is.na(CO2_dry_corr_cal)) %>% # on filtre les valeurs manquantes
+  mutate(month = month(date)) # on crée une colonne mois
+
+
+# avec la fonction boxplot() de base en r
+boxplot_CO2_base <- boxplot(CO2_dry_corr_cal ~ month, data = df_meteoCO2,
+                            main = "Boxplot du CO2 par mois",
+                            xlab = "Mois",
+                            ylab = "CO2 (ppm)", outline = FALSE)
+```
+
+```{r, eval = savefig}
+png(file = paste0(figpath, "/boxplot_CO2_month.png"), width = 12, height = 10, units = "in", res = 300)
+boxplot(CO2_dry_corr_cal ~ month, data = df_meteoCO2,
+                            main = "Boxplot du CO2 par mois",
+                            xlab = "Mois",
+                            ylab = "CO2 (ppm)", outline = FALSE)
+dev.off()
+
+```
+
+```{r}
+# on prend le quantile sup de CO2, en général, et on veut savoir quel mois contient le plus de valeurs dans le quantile max
+quantile_sup <- quantile(df_meteoCO2$CO2_dry_corr_cal, probs = 0.99, na.rm = TRUE)
+quantilesup <- df_meteoCO2 %>%
+  filter(CO2_dry_corr_cal > quantile_sup) %>%
+  group_by(month, saison) %>%
+  summarise(n = n(), .groups = 'drop') %>%
+  arrange(desc(n))
+
+ggplot(quantilesup, aes(x = factor(month), y = n, fill = factor(saison))) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = saison_colors) +
+  labs(title = "Nombre d'observations de CO2 excédant le 99e percentile, par mois",
+       x = "Mois",
+       y = "Nombre de valeurs",
+       fill = "Saison") +
+  theme_minimal()
+
+# et maintenant la distrib du  vent pour le quantile sup du CO2
+df_quantile_sup <- df_meteoCO2 %>%
+  filter(CO2_dry_corr_cal > quantile_sup)
+ggplot(df_quantile_sup, aes(x = ws)) +
+  geom_histogram(binwidth = 0.2, position = "identity", alpha = 0.7, color = "black") +
+  labs(title = "Distribution de la vitesse du vent pour le quantile supérieur du CO2",
+       x = "Vitesse du vent (m/s)",
+       y = "Nombre d'observations") +
+  theme_minimal()
+# moy et é"cart type du vent pour le quantile sup du CO2
+mean_ws_quantile_sup <- mean(df_quantile_sup$ws, na.rm = TRUE)
+sd_ws_quantile_sup <- sd(df_quantile_sup$ws, na.rm = TRUE)
+cat("Moyenne de la vitesse du vent pour le percentile supérieur du CO2 :", mean_ws_quantile_sup, "\n")
+cat("Écart-type de la vitesse du vent pour le percentile supérieur du CO2 :", sd_ws_quantile_sup, "\n")
+```
+
+pour les vents faibles, je coupe à 1 écart type de la moyenne comme borne sup
+
+```{r, eval = savefig}
+ggsave(paste0(figpath, "/quantile_sup_CO2_month.png"), width = 12, height = 10, bg = "white", dpi = 300)
+```
+
+# Jours de vent faible
+
+```{r}
+# on moyenne le vent par jour sur toutes les heures y compris celles pour lesquelles y a un flag puis pour les heures pour lesquelles flag_dn == "matin" ou "soir" et on met tout ça dans un df
+df_vent_faible <- df_meteoCO2 %>%
+  group_by(date = as.Date(date)) %>%
+  summarise(mean_ws = mean(ws, na.rm = TRUE), .groups = "drop")
+df_vent_faible_matin <- df_meteoCO2 %>%
+  filter(flag_dn == "matin") %>%
+  group_by(date = as.Date(date)) %>%
+  summarise(mean_ws_matin = mean(ws, na.rm = TRUE), .groups = "drop")
+df_vent_faible_soir <- df_meteoCO2 %>%
+  filter(flag_dn == "soir") %>%
+  group_by(date = as.Date(date)) %>%
+  summarise(mean_ws_soir = mean(ws, na.rm = TRUE), .groups = "drop")
+df_vent_faible <- df_vent_faible %>%
+  left_join(df_vent_faible_matin, by = "date") %>%
+  left_join(df_vent_faible_soir, by = "date")
+
+rm(df_vent_faible_matin, df_vent_faible_soir) # on supprime les df intermédiaires
+
+# histogramme simple
+a <- ggplot(df_vent_faible, aes(x = mean_ws)) +
+  geom_histogram(binwidth = 0.5, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Distribution de la vitesse du vent moyenne par jour",
+       x = "Vitesse du vent (m/s)",
+       y = "Nombre de jours") +
+  scale_x_continuous(breaks = seq(0, 20, by = 2)) +
+  theme_minimal()
+
+b <- ggplot(df_vent_faible, aes(x = mean_ws_matin)) +
+  geom_histogram(binwidth = 0.5, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Distribution de la vitesse du vent moyenne le matin",
+       x = "Vitesse du vent (m/s)",
+       y = "Nombre de jours") +
+  scale_x_continuous(breaks = seq(0, 20, by = 2)) +
+  theme_minimal()
+c <- ggplot(df_vent_faible, aes(x = mean_ws_soir)) +
+  geom_histogram(binwidth = 0.5, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Distribution de la vitesse du vent moyenne le soir",
+       x = "Vitesse du vent (m/s)",
+       y = "Nombre de jours") +
+  scale_x_continuous(breaks = seq(0, 20, by = 2)) +
+  theme_minimal()
+print(a)
+print(b)
+print(c)
+
+```
+
+```{r, eval = savefig}
+ggsave(paste0(figpath, "/histogramme_vent_faible.png"), plot = a, width = 10, height = 8, bg = "white", dpi = 300)
+ggsave(paste0(figpath, "/histogramme_vent_faible_matin.png"), plot = b, width = 10, height = 8, bg = "white", dpi = 300)
+ggsave(paste0(figpath, "/histogramme_vent_faible_soir.png"), plot = c, width = 10, height = 8, bg = "white", dpi = 300)
+```
+
+```{r}
+df_vent_faible <- df_vent_faible %>%
+  mutate(cat_day = case_when(
+    mean_ws < 2 ~ "inf2",
+    mean_ws >= 2 & mean_ws < 4 ~ "2-4",
+    mean_ws >= 4 ~ "sup4"
+  ))
+df_vent_faible <- df_vent_faible%>%
+  mutate(cat_matin = case_when(
+    mean_ws_matin < 2 ~ "inf2",
+    mean_ws_matin >= 2 & mean_ws_matin < 4 ~ "2-4",
+    mean_ws_matin >= 4 ~ "sup4"
+  ))
+df_vent_faible <- df_vent_faible %>%
+  mutate(cat_soir = case_when(
+    mean_ws_soir < 2 ~ "inf2",
+    mean_ws_soir >= 2 & mean_ws_soir < 4 ~ "2-4",
+    mean_ws_soir >= 4 ~ "sup4"
+  ))
+```
+
+```{r}
+# on sauvegarde les jours de vent faible, séparément jour entier, matin et soir, en sékectionnant juste la date, là où vent inf à 4m
+df_vent_faible %>%
+  filter(mean_ws < 4) %>%
+  select(date) %>%
+  write_csv("data/processed/jours_vent_faible_LCP.csv")
+
+df_vent_faible %>%
+  filter(mean_ws_matin < 4) %>%
+  select(date) %>%
+  write_csv("data/processed/jours_vent_faible_matin_LCP.csv")
+
+df_vent_faible %>%
+  filter(mean_ws_soir < 4) %>%
+  select(date) %>%
+  write_csv("data/processed/jours_vent_faible_soir_LCP.csv")
+
+```

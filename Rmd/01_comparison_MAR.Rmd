@@ -14,6 +14,8 @@ if (interactive()) {
 getwd()
 ```
 
+# Chargement des libraries
+
 ```{r, results='hide', warnings = FALSE, message= FALSE}
 library(ggplot2)
 library(dplyr)
@@ -29,6 +31,8 @@ savefig = TRUE
 getwd()
 ```
 
+# Chargement des données
+
 ```{r}
 # chargement des données
 df_mf <- readRDS("./data/processed/MAR.rds")
@@ -43,7 +47,7 @@ figpath = ("./outputs/figures/comparison_MAR/")
 ```{r}
 # on prend que les données de 2022 pour les df, jusqu'au 31 décembre 2022 inclus
 df_ERA5 <- df_ERA5 %>%
-  select(-c(datejulian, flag_dn, hour, month, year, saison))
+  select(-c(datejulian, flag_dn, hour, month, year, saison, time))
 df_ERA5 <- df_ERA5 %>%
   filter(date >= as.POSIXct("2022-01-01", tz = "UTC") & date < as.POSIXct("2023-01-01", tz = "UTC")) %>%
   rename_with(~ paste0(.x, "_era5"), .cols = -date) 
@@ -66,7 +70,59 @@ df <- df_mf %>%
   left_join(df_ERA5, by = "date") %>%
   left_join(df_ERA5land, by = "date")
 
+# on passe GLO_mf de J/cm² à J/m² puis à des W/m2
+df$GLO_mf <- df$GLO_mf * 10000 /3600
+# on renomme
+df <- df %>%
+  rename(
+    ssrd_mf = GLO_mf,
+    ws_mf = FF_mf,
+    wd_mf = DD_mf,
+    t2m_mf = T_mf,
+    rh_mf = U_mf,
+    totalprecipitation_mf = RR1_mf,
+    sp_mf = PSTAT_mf
+  )
 ```
+# Stats
+```{r}
+# on calcule les rmse et bias par rapport à météofrance comme ref à chaque fois, pour era5 et era5 land
+rmse_ws_era5 <- sqrt(mean((df$ws_mf - df$ws_era5)^2, na.rm = TRUE))
+print(paste("RMSE WS ERA5:", round(rmse_ws_era5, 2)))
+bias_ws_era5 <- mean(df$ws_mf - df$ws_era5, na.rm = TRUE)
+print(paste("Bias WS ERA5:", round(bias_ws_era5, 2)))
+rmse_ws_era5land <- sqrt(mean((df$ws_mf - df$ws_era5land)^2, na.rm = TRUE))
+print(paste("RMSE WS ERA5-Land:", round(rmse_ws_era5land, 2)))
+bias_ws_era5land <- mean(df$ws_mf - df$ws_era5land, na.rm = TRUE)
+print(paste("Bias WS ERA5-Land:", round(bias_ws_era5land, 2)))
+rmse_wd_era5 <- sqrt(mean((df$wd_mf - df$wd_era5)^2, na.rm = TRUE))
+print(paste("RMSE WD ERA5:", round(rmse_wd_era5, 2)))
+bias_wd_era5 <- mean(df$wd_mf - df$wd_era5, na.rm = TRUE)
+print(paste("Bias WD ERA5:", round(bias_wd_era5, 2)))
+rmse_t_era5 <- sqrt(mean((df$t2m_mf - df$t2m_era5)^2, na.rm = TRUE))
+print(paste("RMSE T ERA5:", round(rmse_t_era5, 2)))
+bias_t_era5 <- mean(df$t2m_mf - df$t2m_era5, na.rm = TRUE)
+print(paste("Bias T ERA5:", round(bias_t_era5, 2)))
+rmse_t_era5land <- sqrt(mean((df$t2m_mf - df$t2m_era5land)^2, na.rm = TRUE))
+print(paste("RMSE T ERA5-Land:", round(rmse_t_era5land, 2)))
+bias_t_era5land <- mean(df$t2m_mf - df$t2m_era5land, na.rm = TRUE)
+print(paste("Bias T ERA5-Land:", round(bias_t_era5land, 2)))
+rmse_ssrd_era5land <- sqrt(mean((df$ssrd_mf - df$ssrd_era5land)^2, na.rm = TRUE))
+print(paste("RMSE SSRD ERA5-Land:", round(rmse_ssrd_era5land, 2)))
+
+
+
+summary_df <- df %>%
+  select(-date) %>%
+  sapply(function(x) c(mean = mean(x, na.rm = TRUE),
+                       sd = sd(x, na.rm = TRUE),
+                       min = min(x, na.rm = TRUE),
+                       max = max(x, na.rm = TRUE))) %>%
+  t() %>%
+  as.data.frame() %>%
+  tibble::rownames_to_column("variable")
+```
+# Comparaison des données pour le vent
 
 ```{r}
 # on prend 3 jours pour faire des graphiques
@@ -74,23 +130,6 @@ df_3j <- df %>%
   filter(date >= as.POSIXct("2022-01-10", tz = "UTC") & date < as.POSIXct("2022-01-14", tz = "UTC"))
 # on crée une colonne avec les heures dsepuis le début du df
 df_3j$heures <- as.numeric(difftime(df_3j$date, min(df_3j$date), units = "hours"))
-```
-
-```{r}
-rmse_ff <- sqrt(mean((df$FF - df$FF_era5)^2, na.rm = TRUE))
-print(paste("RMSE FF:", round(rmse_ff, 2)))
-bias_ff <- mean(df$FF - df$FF_era5, na.rm = TRUE)
-print(paste("Bias FF:", round(bias_ff, 2)))
-rmse_t <- sqrt(mean((df$T - df$t2m_era5)^2, na.rm = TRUE))
-print(paste("RMSE T:", round(rmse_t, 2)))
-bias_t <- mean(df$T - df$t2m_era5, na.rm = TRUE)
-print(paste("Bias T:", round(bias_t, 2)))
-summary(df_3j$windu_mf)
-summary(df_3j$windu_era5)
-summary(df_3j$windv_mf)
-summary(df_3j$windv_era5)
-summary(df_3j$windu_era5land)
-summary(df_3j$windv_era5land)
 ```
 
 ```{r}
@@ -151,3 +190,182 @@ ggplot(df_3j_long, aes(x = heures, y = 0)) +
   )
 
 ```
+
+```{r, eval = savefig}
+ggsave(
+  filename = paste0(figpath, "comparison_MAR_wind_3j.png"),
+  width = 12, height = 8, dpi = 600, bg = "white"
+)
+```
+
+```{r}
+ggplot(df_3j_long, aes(x = heures, y = 0, color = source)) +
+  geom_segment(aes(xend = heures + u, yend = v), arrow = arrow(length = unit(0.15, "cm"))) +
+  scale_x_continuous(
+    name = NULL,
+    limits = xlim_common,
+    breaks = breaks_major,
+    minor_breaks = breaks_minor,
+    labels = function(x) format(min(df_3j$date) + x * 3600,  "%Y-%m-%d %H:%M")
+  ) +
+  coord_fixed() +
+  theme_minimal() +
+  theme(
+    axis.title.y = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank()
+  ) +
+  geom_segment(
+    data = ref_arrow,
+    aes(x = heures, y = v, xend = heures + u, yend = v + vv),
+    inherit.aes = FALSE,
+    arrow = arrow(length = unit(0.15, "cm")),
+    color = "black"
+  ) +
+  geom_text(
+    data = ref_arrow,
+    aes(x = heures + u + 0.5, y = v + vv, label = label),
+    inherit.aes = FALSE,
+    hjust = 0,
+    vjust = 0.5,
+    size = 3,
+    color = "black"
+  ) +
+  scale_color_manual(values = c("Météo France" = "#619CFF", "ERA5" = "#F8766D", "ERA5-Land" = "#00BA38")) +
+  labs(color = "Source")
+```
+
+```{r, eval = savefig}
+# plot coloré AVEC BACKGROUND WHITE
+ggsave(
+  filename = paste0(figpath, "comparison_MAR_wind_3j_colors.png"),
+  width = 12, height = 6, dpi = 600, bg = "white"
+)
+rm(df_3j_long)
+```
+```{r}
+# roses des vents
+
+df_long <- df %>%
+  select(date, starts_with("ws"), starts_with("wd")) %>%
+  pivot_longer(
+    cols = -date,
+    names_to = c(".value", "source"),
+    names_pattern = "^(ws|wd)_(.*)$"
+  ) %>%
+  filter(!is.na(ws), !is.na(wd)) %>%
+  mutate(
+    source = recode(source, 
+                    "mf" = "Météo France", 
+                    "era5" = "ERA5", 
+                    "era5land" = "ERA5-Land")
+  )
+windrose <- windRose(df_long, type = "source", paddle = FALSE, border = TRUE,
+                     key.header = "Source", key.footer = "Vitesse du vent (m/s)",
+                     breaks = c(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20))
+```
+
+# Comparaison des données pour la température
+
+```{r}
+ggplot(df_3j, aes(x = date)) +
+  geom_line(aes(y = t2m_mf, color = "Météo France")) +
+  geom_line(aes(y = t2m_era5, color = "ERA 5")) +
+  geom_line(aes(y = t2m_era5land, color = "ERA5 land")) +
+  labs(x = "Date", y = "Temperature (°C)", color = "Source") +
+  scale_x_datetime(date_labels = "%Y-%m-%d %H:%M", date_breaks = "1 day") +
+  scale_color_manual(values = c("Météo France" = "#619CFF", "ERA 5" = "#F8766D", "ERA5 land" = "#00BA38")) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 15, hjust = 1)
+  )
+```
+
+```{r, eval = savefig}
+ggsave(
+  filename = paste0(figpath, "comparison_MAR_temp_3j.png"),
+  width = 12, height = 6, dpi = 600, bg = "white"
+)
+```
+
+# Comparaison des données pour les précipitations
+```{r}
+# on fait un histogramme du cumul par jour par source
+df_precip <- df %>%
+  select(date, totalprecipitation_mf, totalprecipitation_era5) %>%
+  mutate(date = as.Date(date)) %>%
+  group_by(date) %>%
+  summarise(
+    MeteoFrance = sum(totalprecipitation_mf, na.rm = TRUE),
+    ERA5 = sum(totalprecipitation_era5, na.rm = TRUE)
+  ) %>%
+  pivot_longer(cols = -date, names_to = "source", values_to = "precipitation")
+
+# on fait un graphique
+ggplot(df_precip, aes(x = date, y = precipitation, fill = source)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Date", y = "Cumul de précipitations (mm)", fill = "Source") +
+  scale_x_date(date_labels = "%Y-%m-%d", date_breaks = "1 month") +
+  scale_fill_manual(values = c("MeteoFrance" = "#619CFF", "ERA5" = "#F8766D")) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 15, hjust = 1)
+  )
+```
+
+```{r}
+ggsave(
+  filename = paste0(figpath, "comparison_MAR_precip.png"),
+  width = 12, height = 6, dpi = 600, bg = "white"
+)
+```
+
+
+```{r}
+# on fait un histogramme genre jours sans pluie/jours à moins de 5 mm/blabla
+hist_precip <- df %>%
+  select(date, totalprecipitation_mf, totalprecipitation_era5) %>%
+  mutate(date = as.Date(date)) %>%
+  group_by(date) %>%
+  summarise(
+    MeteoFrance = sum(totalprecipitation_mf, na.rm = TRUE),
+    ERA5 = sum(totalprecipitation_era5, na.rm = TRUE)
+  ) %>%
+  pivot_longer(cols = -date, names_to = "source", values_to = "precipitation") %>%
+  mutate(
+    category = case_when(
+      precipitation == 0 ~ "Pas de précipitations",
+      precipitation > 0 & precipitation <= 3 ~ "Précipitations < 3mm",
+      precipitation > 3 & precipitation <= 5 ~ "Précipitations entre 3 et 5mm",
+      precipitation > 5 ~ "Précipitations > 5mm"
+    )
+  )
+ggplot(hist_precip, aes(x = category, fill = source)) +
+  geom_bar(position = "dodge") +
+  labs(x = "", y = "Nombre de jours", fill = "Source") +
+  scale_fill_manual(values = c("MeteoFrance" = "#619CFF", "ERA5" = "#F8766D")) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  )
+```
+```{r, eval = savefig}
+ggsave(
+  filename = paste0(figpath, "comparison_MAR_histprecip.png"),
+  width = 12, height = 8, dpi = 600, bg = "white"
+)
+```
+# Comparaison des données pour le rayonnement solaire
+```{r}
+ggplot(df_3j, aes(x = date)) +
+  geom_line(aes(y = ssrd_mf, color = "Météo France")) +
+  geom_line(aes(y = ssrd_era5land, color = "ERA5-Land")) +
+  labs(x = "Date", y = "Rayonnement global (W/m²)", color = "Source") +
+  scale_x_datetime(date_labels = "%Y-%m-%d %H:%M", date_breaks = "1 day") +
+  scale_color_manual(values = c("Météo France" = "#619CFF", "ERA5-Land" = "#00BA38")) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 15, hjust = 1)
+  )
+```
+

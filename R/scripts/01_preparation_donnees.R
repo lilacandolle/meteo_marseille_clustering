@@ -191,6 +191,9 @@ ERA5land_windu <- file.path(pathERA5land, "windu_20162022.nc")
 ERA5land_windv <- file.path(pathERA5land, "windv_20162022.nc")
 ERA5land_t2m <- file.path(pathERA5land, "t2m_20162022.nc")
 ERA5land_ssrd <- file.path(pathERA5land, "ssrd_20162022.nc")
+ERA5land_surfacepressure <- file.path(pathERA5land, "surfacepressure_20162022.nc")
+ERA5land_totalprecipitation <- file.path(pathERA5land, "totalprecipitation_20162022.nc")
+
 # on extrait les données au point (fin le nearest) d'intérêt (LCP)
 lon <- 5.3950
 lat <- 43.3059
@@ -198,9 +201,11 @@ windu <- extract_point_fromcoords(ERA5land_windu, "u10", lat, lon)
 windv <- extract_point_fromcoords(ERA5land_windv, "v10", lat, lon)
 t2m <- extract_point_fromcoords(ERA5land_t2m, "t2m", lat, lon)
 ssrd <- extract_point_fromcoords(ERA5land_ssrd, "ssrd",lat, lon)
+surfacepressure <- extract_point_fromcoords(ERA5land_surfacepressure, "sp", lat, lon)
+totalprecipitation <- extract_point_fromcoords(ERA5land_totalprecipitation, "tp", lat, lon) 
 
 # on ferme les netcdf
-rm(ERA5land_windu, ERA5land_windv, ERA5land_t2m, ERA5land_ssrd)
+rm(ERA5land_windu, ERA5land_windv, ERA5land_t2m, ERA5land_ssrd, ERA5land_surfacepressure, ERA5land_totalprecipitation)
 
 # on convertit le temps en date
 start_date <- as.POSIXct("1970-01-01 00:00:00", tz = "UTC")
@@ -210,10 +215,13 @@ windu <- windu[order(windu$time), ]
 windv <- windv[order(windv$time), ]
 t2m <- t2m[order(t2m$time), ]
 ssrd <- ssrd[order(ssrd$time), ]
+surfacepressure <- surfacepressure[order(surfacepressure$time), ]
+totalprecipitation <- totalprecipitation[order(totalprecipitation$time), ]
 
 
 # on vérifie que les dates sont les mêmes
-if (!all(windu$time == t2m$time) || !all(windu$time == windv$time) || !all(windu$time == ssrd$time)) {
+if (!all(windu$time == t2m$time) || !all(windu$time == windv$time) || !all(windu$time == ssrd$time) ||
+    !all(windu$time == surfacepressure$time) || !all(windu$time == totalprecipitation$time)) {
   stop("Les dates des données ERA5 land ne correspondent pas.")
 } else {
   message("Les dates des données ERA5 land correspondent.")
@@ -251,9 +259,11 @@ df_ERA5land <- data.frame(
   ws = wind_speed,
   wd = wind_dir,
   t2m = t2m$value - 273.15, # conversion en degrés Celsius
-  ssrd = ssrd$value
-)
-rm(start_date, windu, windv, t2m, ssrd, wind_speed, wind_dir)
+  ssrd = ssrd$value,
+  surfacepressure = surfacepressure$value / 100, # conversion en hPa
+  totalprecipitation = totalprecipitation$value * 1000 # conversion en mm
+  )
+rm(start_date, windu, windv, t2m, ssrd, wind_speed, wind_dir, surfacepressure, totalprecipitation)
 
 # on rajoute flag_dn
 df_ERA5land$flag_dn <- case_when(
@@ -286,6 +296,9 @@ ERA5land_windu <- file.path(pathERA5land, "windu_20162022.nc")
 ERA5land_windv <- file.path(pathERA5land, "windv_20162022.nc")
 ERA5land_t2m <- file.path(pathERA5land, "t2m_20162022.nc")
 ERA5land_ssrd <- file.path(pathERA5land, "ssrd_20162022.nc")
+ERA5land_surfacepressure <- file.path(pathERA5land, "surfacepressure_20162022.nc")
+ERA5land_totalprecipitation <- file.path(pathERA5land, "totalprecipitation_20162022.nc")
+
 # on extrait les données au point (fin le nearest) d'intérêt (LCP)
 lon <- 5.21
 lat <- 43.5
@@ -293,9 +306,11 @@ windu <- extract_point_fromcoords(ERA5land_windu, "u10", lat, lon)
 windv <- extract_point_fromcoords(ERA5land_windv, "v10", lat, lon)
 t2m <- extract_point_fromcoords(ERA5land_t2m, "t2m", lat, lon)
 ssrd <- extract_point_fromcoords(ERA5land_ssrd, "ssrd",lat, lon)
+surfacepressure <- extract_point_fromcoords(ERA5land_surfacepressure, "sp", lat, lon)
+totalprecipitation <- extract_point_fromcoords(ERA5land_totalprecipitation, "tp", lat, lon)
 
 # on ferme les netcdf
-rm(ERA5land_windu, ERA5land_windv, ERA5land_t2m, ERA5land_ssrd)
+rm(ERA5land_windu, ERA5land_windv, ERA5land_t2m, ERA5land_ssrd, ERA5land_surfacepressure, ERA5land_totalprecipitation)
 
 # on convertit le temps en date
 start_date <- as.POSIXct("1970-01-01 00:00:00", tz = "UTC")
@@ -305,10 +320,13 @@ windu <- windu[order(windu$time), ]
 windv <- windv[order(windv$time), ]
 t2m <- t2m[order(t2m$time), ]
 ssrd <- ssrd[order(ssrd$time), ]
+surfacepressure <- surfacepressure[order(surfacepressure$time), ]
+totalprecipitation <- totalprecipitation[order(totalprecipitation$time), ]
 
 
 # on vérifie que les dates sont les mêmes
-if (!all(windu$time == t2m$time) || !all(windu$time == windv$time) || !all(windu$time == ssrd$time)) {
+if (!all(windu$time == t2m$time) || !all(windu$time == windv$time) || !all(windu$time == ssrd$time) ||
+    !all(windu$time == surfacepressure$time) || !all(windu$time == totalprecipitation$time)) {
   stop("Les dates des données ERA5 land ne correspondent pas.")
 } else {
   message("Les dates des données ERA5 land correspondent.")
@@ -336,7 +354,7 @@ wind_speed <- ddff$ff
 wind_dir <- ddff$dd
 rm(ddff)
 
-#### Création d'un dataset avec les données ERA5 land pour LCP
+#### Création d'un dataset avec les données ERA5 land pour mar
 df_ERA5land <- data.frame(
   date = start_date + t2m$time,
   datejulian = as.integer(trunc(julian.POSIXt(windu$time))),
@@ -346,9 +364,11 @@ df_ERA5land <- data.frame(
   ws = wind_speed,
   wd = wind_dir,
   t2m = t2m$value - 273.15, # conversion en degrés Celsius
-  ssrd = ssrd$value
+  ssrd = ssrd$value,
+  surfacepressure = surfacepressure$value / 100, # conversion en hPa
+  totalprecipitation = totalprecipitation$value * 1000 # conversion en mm
 )
-rm(start_date, windu, windv, t2m, ssrd, wind_speed, wind_dir)
+rm(start_date, windu, windv, t2m, ssrd, wind_speed, wind_dir, surfacepressure, totalprecipitation)
 
 # on rajoute flag_dn
 df_ERA5land$flag_dn <- case_when(
@@ -412,4 +432,55 @@ saveRDS(df_VAL, file = "./data/processed/VAL.rds")
 saveRDS(df_MAR, file = "./data/processed/MAR.rds")
 saveRDS(df_LCP, file = "./data/processed/LCP.rds")
 
+#### CO2 -------
+# on charge les données de CO2 qui sont dans un .RData
+load("data/raw/dataset_CAV_cal_min_NF.RData")
+df_CO2 <- dataset_CAV_cal_min_NF
+df_CO2 <- df_CO2 %>%
+  filter(MPV==1) %>%
+  select(date, CO2_dry_corr_cal, CO2_dry_corr_cal_sd)
+saveRDS(df_CO2, file = "./data/processed/CO2_minute.rds")
 
+#### données au quart horaire, on moyenne df_CO2 pour minutes entre 0 et 15, 15 et 30, 30 et 45, 45 et 60
+df_CO2_quart <- df_CO2 %>%
+  mutate(
+    day = as.Date(date),
+    hour = hour(date),
+    minute = minute(date),
+    quart = case_when(
+      minute < 15 ~ "0-15",
+      minute < 30 ~ "15-30",
+      minute < 45 ~ "30-45",
+      TRUE ~ "45-60"
+    )
+  ) %>%
+  group_by(day, quart, hour) %>%
+  summarise(
+    date = first(date),
+    CO2_dry_corr_cal = mean(CO2_dry_corr_cal, na.rm = TRUE),
+    CO2_dry_corr_cal_sd = mean(CO2_dry_corr_cal_sd, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  select(-day, -quart, -hour)
+
+# enlève les lignes où CO2_dry_corr_cal est NA
+df_CO2_quart <- df_CO2_quart %>%
+  filter(!is.na(CO2_dry_corr_cal))
+saveRDS(df_CO2_quart, file = "./data/processed/CO2_quart.rds")
+
+#### données horaire
+df_CO2_hour <- df_CO2 %>%
+  mutate(hour = hour(date),
+         day = as.Date(date)) %>%
+  group_by(day, hour) %>%
+  summarise(
+    date = first(date),
+    CO2_dry_corr_cal = mean(CO2_dry_corr_cal, na.rm = TRUE),
+    CO2_dry_corr_cal_sd = mean(CO2_dry_corr_cal_sd, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  select(-day, -hour)
+# enlève les lignes où CO2_dry_corr_cal est NA
+df_CO2_hour <- df_CO2_hour %>%
+  filter(!is.na(CO2_dry_corr_cal))
+saveRDS(df_CO2_hour, file = "./data/processed/CO2_hour.rds")

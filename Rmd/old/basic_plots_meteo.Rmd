@@ -1,0 +1,148 @@
+---
+title: "basic_plots_meteo"
+author: "Lila Cassan"
+date: "2025-05-19"
+output: html_document
+---
+```{r setup} 
+# on fait en sorte que le wd soit bon aussi quand on exécute chunk by chunk
+if (interactive()) {
+  setwd(rprojroot::find_rstudio_root_file())
+}
+```
+
+```{r, results='hide'}
+# chargement des librairies
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(openair)
+library(foehnix)
+library(metR)
+
+# paramètres pour l'exécution du code
+savefig = TRUE
+```
+
+```{r}
+# le chemin relatif
+df <- read.csv("./data/raw/MeteoFrance/LCPMARVAL_20162025.csv", header = TRUE, sep = ",")
+figpath <- "./outputs/figures/basic_meteofrance/"
+
+```
+
+```{r}
+# changer la colonne AAAAMMJJHH en POSIXct
+df$DateTime <- as.POSIXct(strptime(as.character(df$AAAAMMJJHH), format = "%Y%m%d%H"), tz = "UTC")
+
+
+df$station <- case_when(
+  df$NUM_POSTE == 13055001 ~ "LCP",
+  df$NUM_POSTE == 13054001 ~ "MAR",
+  df$NUM_POSTE == 13055029 ~ "VAL",
+  TRUE ~ NA_character_
+)
+
+df$flag_dn <- case_when(
+  hour(df$DateTime) >= 0 & hour(df$DateTime) < 4 ~ "night",
+  hour(df$DateTime) >= 12 & hour(df$DateTime) < 16 ~ "day",
+  TRUE ~ NA_character_
+)
+
+# on supprime les données de LCP
+df <- df %>%
+  filter(station != "LCP")
+
+# Filtrer les données pour l'année 2020 pour plots
+df_2020 <- df %>%
+  filter(DateTime >= as.POSIXct("2020-01-01") & DateTime < as.POSIXct("2021-01-01"))
+
+# SELECTION DES VARIABLES
+df <- df %>%
+  select(station, NUM_POSTE, NOM_USUEL, DateTime, RR1, FF, DD, T, U, PSTAT, GLO)
+
+df$hour <- hour(df$DateTime)
+df$month <- month(df$DateTime)
+
+df <- df %>%
+  mutate(saison = case_when(
+    month == 12 | month == 1 | month == 2 ~ "DJF",
+    month == 3 | month == 4 | month == 5 ~ "MAM",
+    month == 6 | month == 7 | month == 8 ~ "JJA",
+    month == 9 | month == 10 | month == 11 ~ "SON"
+  ))
+
+df$saison <- factor(df$saison, levels = c("DJF", "MAM", "JJA", "SON"))
+
+# couleurs pour plot en fonction des saisons
+saison_colors <- c("DJF" = "deepskyblue3",    
+                   "MAM" = "springgreen4",
+                   "JJA" = "gold",     
+                   "SON" = "orangered1")
+
+df_VAL <- df %>%
+ filter(station == "VAL")
+
+#df_LCP <- df %>%
+ # filter(station == "LCP")
+
+df_MAR <- df %>%
+ filter(station == "MAR")
+
+
+```
+
+```{r}
+cycle_diurne <- df %>%
+  group_by(saison, hour, station) %>%
+  summarise(mean_temperature = mean(T, na.rm = TRUE),
+            mean_humidity = mean(U, na.rm = TRUE),
+            mean_wind_speed = mean(FF, na.rm = TRUE),
+            mean_surfacepressure = mean(PSTAT, na.rm = TRUE),
+            mean_global_radiation = mean(GLO, na.rm = TRUE),
+            .groups = "drop"
+            )
+# Liste des variables et des titres
+vars_to_plot <- list(
+  "mean_temperature" = "Cycle diurne de la température par saison",
+  "mean_humidity" = "Cycle diurne de l'humidité relative par saison",
+  "mean_wind_speed" = "Cycle diurne de la vitesse du vent par saison",
+  "mean_surfacepressure" = "Cycle diurne de la pression atmosphérique par saison",
+  "mean_global_radiation" = "Cycle diurne de la radiation globale par saison"
+  
+)
+
+# Boucle pour faire les plots
+for (varname in names(vars_to_plot)) {
+  ggplot(cycle_diurne, aes_string(x = "hour", y = varname, color = "saison")) +
+    geom_line() +
+    scale_color_manual(values = saison_colors) +
+    labs(title = vars_to_plot[[varname]],
+         x = "Heure",
+         y = "Valeur moyenne",
+         color = "Saison") +
+    facet_wrap(~ station) +
+    theme_minimal() -> p
+
+  print(p)
+}
+
+wind_MAR <- windRose(df_MAR, ws = "FF", wd = "DD", type = "saison", paddle = F, border = T,
+         key.header = "MAR", key.footer = "Vitesse du vent (m/s)", 
+         key.position = "bottom", key.width = 0.5, 
+         key.height = 0.5, key.size = 1.5, key.text.size = 1.5, 
+         key.text.angle = 0, key.text.color = "black", key.text.font = 2, 
+         key.text.family = "sans", key.text.lineheight = 1.2,
+         breaks = c(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20),
+         )
+
+wind_VAL <- windRose(df_VAL, ws = "FF", wd = "DD", type = "saison", paddle = F, border = T,
+         key.header = "VAL", key.footer = "Vitesse du vent (m/s)", 
+         key.position = "bottom", key.width = 0.5, 
+         key.height = 0.5, key.size = 1.5, key.text.size = 1.5, 
+         key.text.angle = 0, key.text.color = "black", key.text.font = 2, 
+         key.text.family = "sans", key.text.lineheight = 1.2,
+         breaks = c(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20),
+         )
+```

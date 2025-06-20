@@ -1,0 +1,34 @@
+---
+title: "03_clustering_LCP"
+output: html_document
+---
+
+```{r setup}
+# on fait en sorte que le wd soit bon aussi quand on exécute chunk by chunk
+if (interactive()) {
+  setwd(rprojroot::find_rstudio_root_file())
+}
+```
+```{r, include=FALSE}}
+# chargement des librairies
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(openair)
+library(foehnix)
+# paramètres pour l'exécution du code
+savefig = TRUE
+figpath <- "./outputs/figures/clustering_LCP/"
+```
+```{r}
+# chargement des functions
+source("./R/functions/clustering_functions.R")
+```
+
+```{r}
+#load data
+meteoCO2 <- readRDS("./data/processed/df_meteoCO2_LCP.rds")
+```
+
+# Désaisonnalisation

@@ -1,0 +1,423 @@
+---
+title: "clustering_meteofrance"
+author: "Lila Cassan"
+date: "2025-05-22"
+output: html_document
+---
+
+```{r}
+# chargement des librairies
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(openair)
+getwd()
+source("R/functions/clustering_functions.R")
+library(foehnix)
+suppressPackageStartupMessages(library(dendextend))
+library(dendextend)
+
+
+
+# paramètres pour l'exécution du code
+savefig = TRUE
+mac = FALSE
+```
+
+```{r}
+
+df <- read.csv("data/raw/MeteoFrance/LCPMARVAL_20162025.csv", header = TRUE, sep = ",")
+figpath <- "data/figures/meteofrance"
+# changer la colonne AAAAMMJJHH en POSIXct
+df$DateTime <- as.POSIXct(strptime(as.character(df$AAAAMMJJHH), format = "%Y%m%d%H"), tz = "UTC")
+
+print(colnames(df))
+
+df$station <- case_when(
+  df$NUM_POSTE == 13055001 ~ "LCP",
+  df$NUM_POSTE == 13054001 ~ "MAR",
+  df$NUM_POSTE == 13055029 ~ "VAL",
+  TRUE ~ NA_character_
+)
+
+df$flag_dn <- case_when(
+  hour(df$DateTime) >= 0 & hour(df$DateTime) < 4 ~ "night",
+  hour(df$DateTime) >= 12 & hour(df$DateTime) < 16 ~ "day",
+  TRUE ~ NA_character_
+)
+
+# on supprime les données de LCP
+df <- df %>%
+  filter(station != "LCP")
+
+# Filtrer les données pour l'année 2020 pour plots
+df_2020 <- df %>%
+  filter(DateTime >= as.POSIXct("2020-01-01") & DateTime < as.POSIXct("2021-01-01"))
+
+# SELECTION DES VARIABLES
+df <- df %>%
+  select(station, NUM_POSTE, NOM_USUEL, DateTime, RR1, FF, DD, T, U, PSTAT, GLO)
+
+df$hour <- hour(df$DateTime)
+df$month <- month(df$DateTime)
+
+df <- df %>%
+  mutate(saison = case_when(
+    month == 12 | month == 1 | month == 2 ~ "DJF",
+    month == 3 | month == 4 | month == 5 ~ "MAM",
+    month == 6 | month == 7 | month == 8 ~ "JJA",
+    month == 9 | month == 10 | month == 11 ~ "SON"
+  ))
+
+df$saison <- factor(df$saison, levels = c("DJF", "MAM", "JJA", "SON"))
+
+# couleurs pour plot en fonction des saisons
+saison_colors <- c("DJF" = "deepskyblue3",    
+                   "MAM" = "springgreen4",
+                   "JJA" = "gold",     
+                   "SON" = "orangered1")
+
+df_VAL <- df %>%
+ filter(station == "VAL")
+
+#df_LCP <- df %>%
+ # filter(station == "LCP")
+
+df_MAR <- df %>%
+ filter(station == "MAR")
+
+
+```
+
+```{r}
+## redim le df (attention, PSTAT et GLO non disponibles à VAL)
+df <- df %>%
+  pivot_wider(
+    id_cols = c(DateTime, hour, month, saison),
+    names_from = station,
+    values_from = c(RR1, FF, DD, T, U, PSTAT, GLO),
+    values_fn = ~ .x[1]
+  )
+
+df <- data.frame(df)
+df$time <- as.numeric(difftime(df$DateTime, min(df$DateTime), units = "days")) / 365.25 # en années depuis le début des mesures
+
+# on suppriome les cols PSTAT_VAL et GLO_VAL
+df <- df %>%
+  select(-PSTAT_VAL, -GLO_VAL)
+
+# on regarde quelles dates ont une valeur na en utilisant complete cases
+dates_na <- df[!complete.cases(df), ]
+
+df <- df[complete.cases(df), ]
+```
+
+```{r}
+df <- fit_regression(df, "T_MAR")$data
+model_T_MAR <- fit_regression(df, "T_MAR")$model
+
+df <- fit_regression(df, "T_VAL")$data
+model_T_VAL <- fit_regression(df, "T_VAL")$model
+
+df <- fit_regression(df, "U_MAR")$data
+model_U_MAR <- fit_regression(df, "U_MAR")$model
+
+df <- fit_regression(df, "U_VAL")$data
+model_U_VAL <- fit_regression(df, "U_VAL")$model
+
+df <- fit_regression(df, "PSTAT_MAR")$data
+model_PSTAT_MAR <- fit_regression(df, "PSTAT_MAR")$model
+
+df <- fit_regression(df, "GLO_MAR")$data
+model_GLO_MAR <- fit_regression(df, "GLO_MAR")$model
+
+# on transforme DD et FF en u et v
+uv <- ddff2uv(df$DD_MAR, df$FF_MAR)
+df$windu_MAR <- uv$u
+df$windv_MAR <- uv$v
+uv <- ddff2uv(df$DD_VAL, df$FF_VAL)
+df$windu_VAL <- uv$u
+df$windv_VAL <- uv$v
+rm(uv)
+
+```
+
+```{r}
+# Moyenne par jour
+df_daily <- df %>%
+  group_by(DateTime = as.Date(DateTime)) %>%
+  summarise(
+    T_MAR_ano = mean(T_MAR_ano, na.rm = TRUE),
+    T_MAR = mean(T_MAR, na.rm = TRUE),
+    T_VAL_ano = mean(T_VAL_ano, na.rm = TRUE),
+    T_VAL = mean(T_VAL, na.rm = TRUE),
+    U_MAR_ano = mean(U_MAR_ano, na.rm = TRUE),
+    U_MAR = mean(U_MAR, na.rm = TRUE),
+    U_VAL_ano = mean(U_VAL_ano, na.rm = TRUE),
+    U_VAL = mean(U_VAL, na.rm = TRUE),
+    PSTAT_MAR_ano = mean(PSTAT_MAR_ano, na.rm = TRUE),
+    PSTAT_MAR = mean(PSTAT_MAR, na.rm = TRUE),
+    GLO_MAR_ano = mean(GLO_MAR_ano, na.rm = TRUE),
+    GLO_MAR = mean(GLO_MAR, na.rm = TRUE),
+    windu_MAR = mean(windu_MAR, na.rm = TRUE),
+    windv_MAR = mean(windv_MAR, na.rm = TRUE),
+    windu_VAL = mean(windu_VAL, na.rm = TRUE),
+    windv_VAL = mean(windv_VAL, na.rm = TRUE),
+    RR1_VAL = sum(RR1_VAL, na.rm = TRUE),
+    RR1_MAR = sum(RR1_MAR, na.rm = TRUE),
+    .groups = "drop"
+    
+  )
+# type de df_daily
+df_daily <- data.frame(df_daily)
+
+# on fait la moyenne sur les composantes u et v puis on retransforme plus tard en ddff
+ddff <- uv2ddff(df_daily$windu_MAR, df_daily$windv_MAR)
+df_daily$DD_MAR <- ddff$dd
+df_daily$FF_MAR <- ddff$ff
+uv <- ddff2uv(df_daily$DD_MAR, df_daily$FF_MAR)
+df_daily$windu_MAR <- uv$u
+df_daily$windv_MAR <- uv$v
+ddff <- uv2ddff(df_daily$windu_VAL, df_daily$windv_VAL)
+df_daily$DD_VAL <- ddff$dd
+df_daily$FF_VAL <- ddff$ff
+uv <- ddff2uv(df_daily$DD_VAL, df_daily$FF_VAL)
+df_daily$windu_VAL <- uv$u
+df_daily$windv_VAL <- uv$v
+
+# on transforme les précipitations
+df_daily$log10tp_VAL <- df_daily$RR1_VAL
+df_daily$log10tp_MAR <- df_daily$RR1_MAR
+
+df_daily$log10tp_VAL[df_daily$log10tp_VAL== 0] <- 0.01
+df_daily$log10tp_MAR[df_daily$log10tp_MAR== 0] <- 0.01
+
+df_daily$log10tp_VAL <- log10(df_daily$log10tp_VAL)
+df_daily$log10tp_MAR <- log10(df_daily$log10tp_MAR)
+
+```
+
+```{r}
+# Pour la classif
+df_unscaled <- data.frame(
+  DateTime = df_daily$DateTime,
+  T_MAR_ano = df_daily$T_MAR_ano,
+  T_VAL_ano = df_daily$T_VAL_ano,
+  U_MAR_ano = df_daily$U_MAR_ano,
+  U_VAL_ano = df_daily$U_VAL_ano,
+  PSTAT_MAR_ano = df_daily$PSTAT_MAR_ano,
+  GLO_MAR_ano = df_daily$GLO_MAR_ano,
+  windu_MAR = df_daily$windu_MAR,
+  windv_MAR = df_daily$windv_MAR,
+  windu_VAL = df_daily$windu_VAL,
+  windv_VAL = df_daily$windv_VAL,
+  log10tp_VAL = df_daily$log10tp_VAL,
+  log10tp_MAR = df_daily$log10tp_MAR
+)
+
+# on centre et réduit les données
+df_scaled <- df_unscaled %>%
+  select(-DateTime) %>%
+  scale(center = TRUE, scale = TRUE) %>%
+  as.data.frame()
+
+df_scaled$DateTime <- df_unscaled$DateTime
+
+# on fait la PCA
+df_scaled_sansdate <- df_scaled %>%
+  select(-DateTime)
+
+acp <- prcomp(df_scaled_sansdate, center = TRUE, scale. = TRUE)
+summary(acp)
+plot(acp)
+print(acp$rotation)
+
+data_acp <- data.frame(acp$x[, 1:5])
+data_acp_sansdate <- data_acp
+data_acp$date <- df_unscaled$DateTime
+
+#dataset acp pondéré par sqrt variance exmpliquée
+pond_acp <- data.frame(acp$x[, 1:5] * sqrt(acp$sdev[1:5]))
+pond_acp_sansdate <- pond_acp
+pond_acp$DateTime <- df_unscaled$DateTime
+
+```
+
+# KMM clustering
+
+```{r}
+# Clustering kmeans
+kmm_res <- kmeans(data_acp_sansdate, centers = 6, iter.max = 200, nstart = 15)
+df_daily$kmm_cluster <- kmm_res$cluster
+```
+
+```{r}
+# dictionnaire des vars pour plot
+vars_dict <- list(
+  T_MAR_ano = "Anomalies de température MAR",
+  T_VAL_ano = "Anomalies de température VAL",
+  U_MAR_ano = "Anomalies d'humidité relative MAR",
+  U_VAL_ano = "Anomalies d'humidité relative VAL",
+  PSTAT_MAR_ano = "Anomalies de pression MAR",
+  GLO_MAR_ano = "Anomalies de radiation MAR",
+  log10tp_VAL = "log10 Précipitations VAL",
+  log10tp_MAR = "log10 Précipitations MAR",
+  DD_MAR = "Direction du vent MAR",
+  FF_MAR = "Vitesse du vent MAR",
+  DD_VAL = "Direction du vent VAL",
+  FF_VAL = "Vitesse du vent VAL"
+  
+)
+# plot des résultats de clustering
+plot_clustering_results(df_daily, "kmm_cluster", "kmeans", "kmeans", vars_dict, savefig = FALSE, windf_col = "FF_MAR", windd_col = "DD_MAR")
+```
+
+```{r}
+kmm_pondres <- kmeans(pond_acp_sansdate, centers = 6, iter.max = 200, nstart = 15)
+df_daily$kmmpond_cluster <- kmm_pondres$cluster
+plot_clustering_results(df_daily, "kmmpond_cluster", "kmeans", "kmeans", vars_dict, savefig = FALSE, windf_col = "FF_MAR", windd_col = "DD_MAR")
+```
+
+# Complete clustering
+
+```{r}
+## Clustering
+dist <- dist(data_acp,"euclidian")
+hc <- hclust(dist)
+
+# Plot les distances auxquelles sont aggrégés les clusters
+height_data <- data.frame(
+  Iteration = 1:length(hc$height),  # Les itérations
+  Hauteur = hc$height                # Les hauteurs des clusters à chaque itération
+)
+ggplot(height_data, aes(x = Iteration, y = Hauteur)) +
+  geom_line(color = "darkslateblue") +  # Trace la ligne
+  labs(title = "Distance d'aggrégation", x = "Itération", y = "Hauteur") +
+  theme_minimal()
+
+b<-cutree(hc, k = 6) # k le nombre de clusters souhaités
+
+avg_dend_obj1 <- as.dendrogram(hc)
+ordered_clusters <- b[order.dendrogram(avg_dend_obj1)]
+
+# Colorier les branches du dendrogramme selon les groupes formés par cutree
+avg_col_dend1 <- color_branches(avg_dend_obj1, clusters = ordered_clusters)
+#suppress labels
+avg_col_dend1 <- set_labels(avg_col_dend1, k = 6, h = 20, labels = NA)
+#avg_col_dend1 <- color_branches(avg_dend_obj1, k=6, h = 35)
+plot(avg_col_dend1, cex.axis = 3, xaxt = "n")
+df_daily$cluster_completeCAH <- b
+```
+
+```{r}
+plot_clustering_results(df_daily, "cluster_completeCAH", "CAHcomplete", "CAHcomplete", vars_dict, savefig = FALSE, windf_col = "FF_MAR", windd_col = "DD_MAR")
+```
+
+```{r}
+## Clustering
+dist <- dist(pond_acp,"euclidian")
+hc <- hclust(dist)
+
+# Plot les distances auxquelles sont aggrégés les clusters
+height_data <- data.frame(
+  Iteration = 1:length(hc$height),  # Les itérations
+  Hauteur = hc$height                # Les hauteurs des clusters à chaque itération
+)
+ggplot(height_data, aes(x = Iteration, y = Hauteur)) +
+  geom_line(color = "darkslateblue") +  # Trace la ligne
+  labs(title = "Distance d'aggrégation", x = "Itération", y = "Hauteur") +
+  theme_minimal()
+
+b<-cutree(hc, k = 6) # k le nombre de clusters souhaités
+
+avg_dend_obj1 <- as.dendrogram(hc)
+ordered_clusters <- b[order.dendrogram(avg_dend_obj1)]
+
+# Colorier les branches du dendrogramme selon les groupes formés par cutree
+avg_col_dend1 <- color_branches(avg_dend_obj1, clusters = ordered_clusters)
+#suppress labels
+avg_col_dend1 <- set_labels(avg_col_dend1, k = 6, h = 20, labels = NA)
+#avg_col_dend1 <- color_branches(avg_dend_obj1, k=6, h = 35)
+plot(avg_col_dend1, cex.axis = 3, xaxt = "n")
+df_daily$clusterpond_completeCAH <- b
+```
+
+```{r}
+plot_clustering_results(df_daily, "clusterpond_completeCAH", "CAHcomplete", "CAHcomplete", vars_dict, savefig = FALSE, windf_col = "FF_MAR", windd_col = "DD_MAR")
+```
+
+# Plots
+
+```{r}
+#  un histogramme des clusters par mois
+df_daily$month <- month(df_daily$DateTime)
+ggplot(df_daily, aes(x = factor(month), fill = factor(cluster_completeCAH))) +
+  geom_bar(position = "fill") +
+  labs(title = "Répartition des clusters de la cah par liaison complète par mois", x = "Mois", y = "Proportion") +
+  scale_fill_viridis_d() +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(df_daily, aes(x = factor(month), fill = factor(kmm_cluster))) +
+  geom_bar(position = "fill") +
+  labs(title = "Répartition des clusters de kmm par mois", x = "Mois", y = "Proportion") +
+  scale_fill_viridis_d() +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# pareil mais avec une ligne par cluster pour qu ils soent alignés
+ggplot(df_daily, aes(x = factor(month), fill = factor(cluster_completeCAH))) +
+  geom_bar(position = "dodge") +
+  labs(title = "Répartition des clusters de la cah par liaison complète par mois", x = "Mois", y = "Nombre") +
+  scale_fill_viridis_d() +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# pour kmm
+ggplot(df_daily, aes(x = factor(month), fill = factor(kmm_cluster))) +
+  geom_bar(position = "dodge") +
+  labs(title = "Répartition des clusters de kmm par mois", x = "Mois", y = "Nombre") +
+  scale_fill_viridis_d() +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# pareil avec facet wrap
+ggplot(df_daily, aes(x = factor(month), fill = factor(cluster_completeCAH))) +
+  geom_bar(position = "dodge") +
+  labs(title = "Répartition des clusters de la cah par liaison complète par mois", x = "Mois", y = "Nombre") +
+  scale_fill_viridis_d() +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  facet_wrap(~ cluster_completeCAH, ncol = 1)
+
+ # facet pour kmm
+ggplot(df_daily, aes(x = factor(month), fill = factor(kmm_cluster))) +
+  geom_bar(position = "dodge") +
+  labs(title = "Répartition des clusters de kmm par mois", x = "Mois", y = "Nombre") +
+  scale_fill_viridis_d() +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  facet_wrap(~ kmm_cluster, ncol = 1)
+```
+
+```{r}
+# matrice de cortré"lation entre les clusters pour les deux méthodes
+
+mat <- table(df_daily$kmm_cluster, df_daily$cluster_completeCAH)
+mat <- as.data.frame.matrix(mat)
+mat <- mat %>%
+  mutate(cluster = row_number()) %>%
+  pivot_longer(cols = -cluster, names_to = "cluster_completeCAH", values_to = "count") %>%
+  mutate(cluster = factor(cluster),
+         cluster_completeCAH = factor(cluster_completeCAH))
+
+ggplot(mat, aes(x = cluster, y = cluster_completeCAH, fill = count)) +
+  geom_tile() +
+  geom_text(aes(label = count), color = "white") +
+  scale_fill_viridis_c(option = "rocket", direction = -1) +
+  labs(title = "Matrice de confusion entre les clusters kmm et CAH", x = "Clusters kmm", y = "Clusters CAH") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
