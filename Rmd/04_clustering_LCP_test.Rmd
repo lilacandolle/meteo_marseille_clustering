@@ -201,7 +201,8 @@ rm(jours_vent_faible, matins_vent_faible, soirs_vent_faible)
 ### sur la plage du matin
 
 ```{r}
-figpath2 <- paste0(figpath, "CAH/")
+subdir <- "plage_matin_DJF/complete_CAH/"
+figpath2 <- paste0(figpath, subdir)
 ```
 
 ```{r}
@@ -236,7 +237,7 @@ avg_col_dend1 <- set_labels(avg_col_dend1, k = 8, h = 20, labels = NA)
 plot(avg_col_dend1, cex.axis = 3, xaxt = "n")
 
 if (savefig) {
-  png(file.path(figpath2, "plage_matin_DJF_scaled_complete_CAH.png"), width = 4000, height = 3000, res = 300)
+  png(file.path(figpath2, "dendro_plage_matin_DJF_scaled_complete_CAH.png"), width = 4000, height = 3000, res = 300)
   plot(avg_col_dend1, cex.axis = 3, xaxt = "n")
   dev.off()  
 }
@@ -261,10 +262,15 @@ ddff <- uv2ddff(plage_matin_DJF$windu, plage_matin_DJF$windv)
 plage_matin_DJF$wd <- ddff$dd
 plage_matin_DJF$ws <- ddff$ff
 
-plot_clustering_results(plage_matin_DJF, 'completeCAH', 'complete_CAH', 'plage_matin_DJF_complete_CAH', vars_dict = vars_dict)
+plot_clustering_results(plage_matin_DJF, 'completeCAH', sub_dir = subdir, 'plage_matin_DJF_complete_CAH', vars_dict = vars_dict)
 ```
 
 ### sur les jours de vents faibles uniquement
+```{r}
+sub_dir <- "plage_matin_DJF_ventfaible/complete_CAH/"
+figpath3 <- paste0(figpath, sub_dir)
+```
+
 
 ```{r}
 distance_mat <- dist(plage_matin_DJF_ventfaible_scaled,"euclidian")
@@ -281,7 +287,7 @@ ggplot(height_data, aes(x = Iteration, y = Hauteur)) +
   theme_minimal()
 
 if (savefig) {
-  ggsave(file.path(figpath2, "dist_complete_CAH_plage_matin_DJF_ventfaible.png"), width = 10, height = 6, bg = "white")
+  ggsave(file.path(figpath3, "dist_complete_CAH_plage_matin_DJF_ventfaible.png"), width = 10, height = 6, bg = "white")
 }
 b <- cutree(hc, k = 6) # k le nombre de clusters souhaités
 avg_dend_obj1 <- as.dendrogram(hc)
@@ -291,7 +297,7 @@ avg_col_dend1 <- set_labels(avg_col_dend1, k = 6, h = 20, labels = NA)
 plot(avg_col_dend1, cex.axis = 3, xaxt = "n")
 
 if (savefig) {
-  png(file.path(figpath2, "complete_CAH_plage_matin_DJF_ventfaible.png"), width = 4000, height = 3000, res = 300)
+  png(file.path(figpath3, "dendro_complete_CAH_plage_matin_DJF_ventfaible.png"), width = 4000, height = 3000, res = 300)
   plot(avg_col_dend1, cex.axis = 3, xaxt = "n")
   dev.off()  
 }
@@ -301,13 +307,14 @@ ddff <- uv2ddff(plage_matin_DJF_ventfaible$windu, plage_matin_DJF_ventfaible$win
 plage_matin_DJF_ventfaible$wd <- ddff$dd
 plage_matin_DJF_ventfaible$ws <- ddff$ff
 
-plot_clustering_results(plage_matin_DJF_ventfaible, 'completeCAH', 'complete_CAH_plage_matin_DJF_ventfaible', 'complete_CAH_plage_matin_DJF_ventfaible', vars_dict = vars_dict)
+plot_clustering_results(plage_matin_DJF_ventfaible, 'completeCAH', sub_dir = sub_dir, 'complete_CAH_plage_matin_DJF_ventfaible', vars_dict = vars_dict)
 
 ```
 
 ### sur les données horaires
 ```{r}
-figpath3 <- paste0(figpath, "CAH_hourly/")
+sub_dir <- "hourly_matin_DJF/complete_CAH/"
+figpath4 <- paste0(figpath, sub_dir)
 ```
 ```{r}
 distance_mat <- dist(hourly_matin_DJF_scaled,"euclidian")
@@ -322,7 +329,7 @@ ggplot(height_data, aes(x = Iteration, y = Hauteur)) +
   labs(title = "Distance d'aggrégation", x = "Itération", y = "Hauteur") +
   theme_minimal()
 if (savefig) {
-  ggsave(file.path(figpath3, "dist_hourly_matin_DJF_scaled_complete_CAH.png"), width = 10, height = 6, bg = "white")
+  ggsave(file.path(figpath4, "dist_hourly_matin_DJF_scaled_complete_CAH.png"), width = 10, height = 6, bg = "white")
 }
 b <- cutree(hc, k = 8) # k le nombre de clusters souhaités
 suppressPackageStartupMessages(library(dendextend))
@@ -334,7 +341,7 @@ avg_col_dend1 <- color_branches(avg_dend_obj1, clusters = ordered_clusters)
 avg_col_dend1 <- set_labels(avg_col_dend1, k = 8, h = 20, labels = NA)
 plot(avg_col_dend1, cex.axis = 3, xaxt = "n")
 if (savefig) {
-  png(file.path(figpath3, "hourly_matin_DJF_complete_CAH.png"), width = 4000, height = 3000, res = 300)
+  png(file.path(figpath4, "dendro_hourly_matin_DJF_complete_CAH.png"), width = 4000, height = 3000, res = 300)
   plot(avg_col_dend1, cex.axis = 3, xaxt = "n")
   dev.off()  
 }
@@ -347,8 +354,52 @@ hourly_matin_DJF$ws <- ddff$ff
 ```
 
 ```{r}
-plot_clustering_results(hourly_matin_DJF, 'completeCAH', 'hourly_matin_DJF_complete_CAH', 'hourly_matin_DJF_complete_CAH', vars_dict = vars_dict)
+plot_clustering_results(hourly_matin_DJF, 'completeCAH', sub_dir = sub_dir, 'hourly_matin_DJF_complete_CAH', vars_dict = vars_dict)
 ```
+### Données horaires vents faibles
+```{r}
+sub_dir <- "hourly_matin_DJF_ventfaible/complete_CAH/"
+figpath5 <- paste0(figpath, sub_dir)
+```
+```{r}
+distance_mat <- dist(hourly_matin_DJF_ventfaible_scaled,"euclidian")
+hc <- hclust(distance_mat)
+# Plot les distances auxquelles sont aggrégés les clusters
+height_data <- data.frame(
+  Iteration = 1:length(hc$height),  # Les itérations
+  Hauteur = hc$height                # Les hauteurs des clusters à chaque itération
+)
+ggplot(height_data, aes(x = Iteration, y = Hauteur)) +
+  geom_line(color = "darkslateblue") +  # Trace la ligne
+  labs(title = "Distance d'aggrégation", x = "Itération", y = "Hauteur") +
+  theme_minimal()
+if (savefig) {
+  ggsave(file.path(figpath5, "dist_hourly_matin_DJF_ventfaible_scaled_complete_CAH.png"), width = 10, height = 6, bg = "white")
+}
+b <- cutree(hc, k = 8) # k le nombre de clusters souhaités
+suppressPackageStartupMessages(library(dendextend))
+avg_dend_obj1 <- as.dendrogram(hc)
+ordered_clusters <- b[order.dendrogram(avg_dend_obj1)]
+# Colorier les branches du dendrogramme selon les groupes formés par cutree
+avg_col_dend1 <- color_branches(avg_dend_obj1, clusters = ordered_clusters)
+#suppress labels
+avg_col_dend1 <- set_labels(avg_col_dend1, k = 8, h = 20, labels = NA)
+plot(avg_col_dend1, cex.axis = 3, xaxt = "n")
+if (savefig) {
+  png(file.path(figpath5, "dendro_hourly_matin_DJF_ventfaible_complete_CAH.png"), width = 4000, height = 3000, res = 300)
+  plot(avg_col_dend1, cex.axis = 3, xaxt = "n")
+  dev.off()  
+}
+hourly_matin_DJF_ventfaible$completeCAH <- b
+rm(b)
+ddff <- uv2ddff(hourly_matin_DJF_ventfaible$windu, hourly_matin_DJF_ventfaible$windv)
+hourly_matin_DJF_ventfaible$wd <- ddff$dd
+hourly_matin_DJF_ventfaible$ws <- ddff$ff
+plot_clustering_results(hourly_matin_DJF_ventfaible, 'completeCAH', sub_dir = sub_dir, 'hourly_matin_DJF_ventfaible_complete_CAH', vars_dict = vars_dict)
+
+
+```
+
 
 ## 6.2. GMM
 ```{r}
@@ -357,12 +408,17 @@ figpathGMM <- paste0(figpath, "GMM")
 
 ### tout sur plage
 ```{r}
+sub_dir <- "plage_matin_DJF/GMM/"
+figpathGMM <- paste0(figpath, sub_dir)
+```
+
+```{r}
 temp <- plage_matin_DJF_scaled %>%
   select(-day) # on enlève la colonne jour pour le GMM
 gmm_model <- Mclust(temp, G = 8) # G le nombre de clusters souhaités
 summary(gmm_model)
 plage_matin_DJF$GMM <- gmm_model$classification
-plot_clustering_results(plage_matin_DJF, 'GMM', 'GMM_plage_matin_DJF', 'GMM_plage_matin_DJF', vars_dict = vars_dict)
+plot_clustering_results(plage_matin_DJF, 'GMM', sub_dir = sub_dir, 'GMM_plage_matin_DJF', vars_dict = vars_dict)
 
 ```
 
@@ -374,7 +430,17 @@ roses_GMM <- polarFreq(plage_matin_DJF, pollutant = "CO2_dry_corr_cal",
                             main = "Roses de concentration GMM Matin DJF", min.bin = 1)
 ```
 
+```{r, eval = savefig}
+png(file.path(figpathGMM, "roses_GMM_plage_matin_DJF.png"), width = 2000, height = 1500, res = 300)
+plot(roses_GMM, main = "Roses de concentration GMM Matin DJF")
+```
+
+
 ### vents faibles sur plage
+```{r}
+sub_dir <- "plage_matin_DJF_ventfaible/GMM/"
+figpathGMM <- paste0(figpath, sub_dir)
+```
 
 ```{r}
 # on refait la classif sur les jours de vents faibles uniquement
@@ -383,7 +449,7 @@ temp <- plage_matin_DJF_ventfaible_scaled %>%
 gmm_model <- Mclust(temp, G = 6) # G le nombre de clusters souhaités
 summary(gmm_model)
 plage_matin_DJF_ventfaible$GMM <- gmm_model$classification
-plot_clustering_results(plage_matin_DJF_ventfaible, 'GMM', 'GMM_plage_matin_DJF_ventfaible', 'GMM_plage_matin_DJF_ventfaible', vars_dict = vars_dict)
+plot_clustering_results(plage_matin_DJF_ventfaible, 'GMM', sub_dir = sub_dir, 'GMM_plage_matin_DJF_ventfaible', vars_dict = vars_dict)
 ```
 
 ```{r}
@@ -400,20 +466,59 @@ dev.off()
 ```
 ### horaire total
 ```{r}
+sub_dir <- "hourly_matin_DJF/GMM/"
+figpathGMM <- paste0(figpath, sub_dir)
+```
+
+```{r}
 temp <- hourly_matin_DJF_scaled %>%
   select(-date) # on enlève la colonne date pour le GMM
 gmm_model <- Mclust(temp, G = 8) # G le nombre de clusters souhaités
 summary(gmm_model)
 hourly_matin_DJF$GMM <- gmm_model$classification
-plot_clustering_results(hourly_matin_DJF, 'GMM', 'GMM_hourly_matin_DJF', 'GMM_hourly_matin_DJF', vars_dict = vars_dict)1
+plot_clustering_results(hourly_matin_DJF, 'GMM', sub_dir = sub_dir, 'GMM_hourly_matin_DJF', vars_dict = vars_dict)
 ```
 ### horaire vents faibles
+```{r}
+sub_dir <- "hourly_matin_DJF_ventfaible/GMM/"
+figpathGMM <- paste0(figpath, sub_dir)
+```
+
 ```{r}
 temp <- hourly_matin_DJF_ventfaible_scaled %>%
   select(-date) # on enlève la colonne date pour le GMM
 gmm_model <- Mclust(temp, G = 6) # G le nombre de clusters souhaités
 summary(gmm_model)
 hourly_matin_DJF_ventfaible$GMM <- gmm_model$classification
-plot_clustering_results(hourly_matin_DJF_ventfaible, 'GMM', 'GMM_hourly_matin_DJF_ventfaible', 'GMM_hourly_matin_DJF_ventfaible', vars_dict = vars_dict)
+plot_clustering_results(hourly_matin_DJF_ventfaible, 'GMM', sub_dir = sub_dir, 'GMM_hourly_matin_DJF_ventfaible', vars_dict = vars_dict)
 ```
+
+```{r}
+# roses de concentration
+hourly_matin_DJF_ventfaible$GMM <- as.factor(hourly_matin_DJF_ventfaible$GMM)
+roses_GMM_ventfaible <- polarFreq(hourly_matin_DJF_ventfaible, pollutant = "CO2_dry_corr_cal", 
+                            type = "GMM", statistic = "mean",
+                            main = "Roses de concentration GMM Matin DJF Vent faible", min.bin = 1)
+```
+```{r, eval = savefig}
+png(file.path(figpathGMM, "roses_GMM_hourly_matin_DJF_ventfaible.png"), width = 2000, height = 1500, res = 300)
+plot(roses_GMM_ventfaible, main = "Roses de concentration GMM Matin DJF Vent faible")
+dev.off()
+```
+```{r}
+yearlystats_hourly_matin_DJF_ventfaible <- hourly_matin_DJF_ventfaible %>%
+  group_by(year = year(date), GMM) %>%
+  summarise(mean_CO2 = mean(CO2_dry_corr_cal, na.rm = TRUE),
+            sd_CO2 = sd(CO2_dry_corr_cal, na.rm = TRUE),
+            n = n()) %>%
+  ungroup()
+ggplot(yearlystats_hourly_matin_DJF_ventfaible, aes(x = year, y = mean_CO2, color = GMM)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Moyenne du CO2 par année et par cluster GMM",
+       x = "Année", y = "Moyenne du CO2 (ppm)", color = "Cluster GMM") +
+  theme_minimal()
+```
+
+
 
