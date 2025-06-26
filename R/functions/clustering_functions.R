@@ -147,18 +147,18 @@ old_plot_clustering_results <- function(data, clcolname, sub_dir, nom, windu = w
 
 #### version OK
 plot_clustering_results <- function(data, clcolname, sub_dir, nom, 
+                                    savefig = savefig,
                                     vars_dict = list(
-                                      t2m_ano = "Anomalies de température_a_2m",
+                                      t2m_ano = "Anomalies de température à 2m",
                                       relative_humidity_ano = "Anomalies de humidité_relative",
-                                      surfacepressure_ano = "Anomalies de Surface_pressure",
-                                      ssrd_ano = "Anomalies de Solar_surface_radiation_downwards",
+                                      surfacepressure_ano = "Anomalies de pression",
+                                      ssrd_ano = "Anomalies de Solar surface radiation downwards",
                                       windu = "vent_u",
                                       windv = "vent_v",
                                       wd = "wind dir",
                                       ws = "wind speed",
                                       totalprecipitation = "Précipitations totales"
                                     ),
-                                    savefig = TRUE,
                                     windf_col = "ws",
                                     windd_col = "wd") {
   
@@ -176,7 +176,7 @@ plot_clustering_results <- function(data, clcolname, sub_dir, nom,
     
     plot_box <- ggplot(data, aes(x = cluster_label, y = !!sym(var), fill = as.factor(!!sym(clcolname)))) +
       geom_boxplot() +
-      labs(title = paste(nom_var, "par", clcolname), 
+      labs(title = paste(nom_var, "par cluster"), 
            x = clcolname, 
            y = nom_var,
            fill = "Cluster") +

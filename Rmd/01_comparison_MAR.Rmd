@@ -25,6 +25,7 @@ library(openair)
 library(foehnix)
 library(metR)
 library(ncdf4)
+library(circular)
 library(patchwork)
 # paramètres pour l'exécution du code
 savefig = TRUE
@@ -158,7 +159,7 @@ ref_arrow <- data.frame(
 
 ggplot(df_3j_long, aes(x = heures, y = 0)) +
   geom_segment(aes(xend = heures + u, yend = v), arrow = arrow(length = unit(0.15, "cm"))) +
-  facet_wrap(~source, ncol = 1) +
+  facet_wrap(~source, ncol = 1, strip.position = "left") +
   scale_x_continuous(
     name = NULL,
     limits = xlim_common,
@@ -193,8 +194,8 @@ ggplot(df_3j_long, aes(x = heures, y = 0)) +
 
 ```{r, eval = savefig}
 ggsave(
-  filename = paste0(figpath, "comparison_MAR_wind_3j.png"),
-  width = 12, height = 8, dpi = 600, bg = "white"
+  filename = paste0(figpath, "comparison_MAR_wind_3j_big.png"),
+  width = 18, height = 10, units = "cm", dpi = 300, bg = "white"
 )
 ```
 
@@ -265,6 +266,99 @@ windrose <- windRose(df_long, type = "source", paddle = FALSE, border = TRUE,
                      breaks = c(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20))
 ```
 
+```{r}
+# on groupe par heure de la journée et on calcule le biais MF/ERA5 et MF/ERA5 land pour chaque heure pour le vent, et on plot
+df_hourly <- df %>%
+  mutate(
+    hour = hour(date),
+    err_u_era5 = windu_mf - windu_era5,
+    err_v_era5 = windv_mf - windv_era5,
+    err_u_era5land = windu_mf - windu_era5land,
+    err_v_era5land = windv_mf - windv_era5land
+  ) %>%
+  group_by(hour) %>%
+  summarise(
+    windu_mf = mean(windu_mf, na.rm = TRUE),
+    windu_era5 = mean(windu_era5, na.rm = TRUE),
+    windu_era5land = mean(windu_era5land, na.rm = TRUE),
+    windv_mf = mean(windv_mf, na.rm = TRUE),
+    windv_era5 = mean(windv_era5, na.rm = TRUE),
+    windv_era5land = mean(windv_era5land, na.rm = TRUE),
+    
+    rmse_u_era5 = sqrt(mean(err_u_era5^2, na.rm = TRUE)),
+    rmse_v_era5 = sqrt(mean(err_v_era5^2, na.rm = TRUE)),
+    rmse_u_era5land = sqrt(mean(err_u_era5land^2, na.rm = TRUE)),
+    rmse_v_era5land = sqrt(mean(err_v_era5land^2, na.rm = TRUE))
+  ) %>%
+  mutate(
+    bias_windu_era5 = windu_mf - windu_era5,
+    bias_windv_era5 = windv_mf - windv_era5,
+    bias_windu_era5land = windu_mf - windu_era5land,
+    bias_windv_era5land = windv_mf - windv_era5land,
+    
+    bias_ws_era5 = sqrt(bias_windu_era5^2 + bias_windv_era5^2),
+    bias_ws_era5land = sqrt(bias_windu_era5land^2 + bias_windv_era5land^2),
+    bias_wd_era5 = atan2(bias_windv_era5, bias_windu_era5) * 180 / pi,
+    bias_wd_era5land = atan2(bias_windv_era5land, bias_windu_era5land) * 180 / pi,
+    
+    rmse_ws_era5 = sqrt(rmse_u_era5^2 + rmse_v_era5^2),
+    rmse_ws_era5land = sqrt(rmse_u_era5land^2 + rmse_v_era5land^2)
+  )
+
+#Biais vitesse du vent 
+a <- ggplot(df_hourly, aes(x = hour)) +
+  geom_line(aes(y = bias_ws_era5, color = "ERA5")) +
+  geom_line(aes(y = bias_ws_era5land, color = "ERA5-Land")) +
+  labs(x = "Heure de la journée", y = "Biais de la vitesse du vent (m/s)", color = "Source") +
+  scale_x_continuous(breaks = 0:23) +
+  scale_color_manual(values = c("ERA5" = "#F8766D", "ERA5-Land" = "#00BA38")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 15, hjust = 1))
+
+# direction du vent 
+b <- ggplot(df_hourly, aes(x = hour)) +
+  geom_line(aes(y = bias_wd_era5, color = "ERA5")) +
+  geom_line(aes(y = bias_wd_era5land, color = "ERA5-Land")) +
+  labs(x = "Heure de la journée", y = "Biais de la direction du vent (°)", color = "Source") +
+  scale_x_continuous(breaks = 0:23) +
+  scale_color_manual(values = c("ERA5" = "#F8766D", "ERA5-Land" = "#00BA38")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 15, hjust = 1))
+
+# RMSE vitesse du vent
+c <- ggplot(df_hourly, aes(x = hour)) +
+  geom_line(aes(y = rmse_ws_era5, color = "ERA5")) +
+  geom_line(aes(y = rmse_ws_era5land, color = "ERA5-Land")) +
+  labs(x = "Heure de la journée", y = "RMSE de la vitesse du vent (m/s)", color = "Source") +
+  scale_x_continuous(breaks = 0:23) +
+  scale_color_manual(values = c("ERA5" = "#F8766D", "ERA5-Land" = "#00BA38")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 15, hjust = 1))
+
+print(a)
+print(b)
+print(c)
+```
+```{r, eval = savefig}
+ggsave(
+  filename = paste0(figpath, "comparison_MAR_windspeed_bias.png"),
+  plot = a,
+  width = 18, height = 10, dpi = 300, units = "cm", bg = "white"
+)
+
+ggsave(
+  filename = paste0(figpath, "comparison_MAR_winddir_bias.png"),
+  plot = b,
+  width = 18, height = 10, dpi = 600, bg = "white", units = "cm"
+)
+
+ggsave(
+  filename = paste0(figpath, "comparison_MAR_windspeed_rmse.png"),
+  plot = c,
+  width = 18, height = 10, dpi = 600, bg = "white", units = "cm")
+```
+
+
 # Comparaison des données pour la température
 
 ```{r}
@@ -287,6 +381,53 @@ ggsave(
   width = 12, height = 6, dpi = 600, bg = "white"
 )
 ```
+```{r}
+# rmse et biais par heure de la journée
+
+# Calcul du biais et de la RMSE pour t2m
+df_hourly_t2m <- df %>%
+  mutate(
+    hour = hour(date),
+    err_t2m_era5 = t2m_mf - t2m_era5,
+    err_t2m_era5land = t2m_mf - t2m_era5land
+  ) %>%
+  group_by(hour) %>%
+  summarise(
+    t2m_mf = mean(t2m_mf, na.rm = TRUE),
+    t2m_era5 = mean(t2m_era5, na.rm = TRUE),
+    t2m_era5land = mean(t2m_era5land, na.rm = TRUE),
+    
+    rmse_t2m_era5 = sqrt(mean(err_t2m_era5^2, na.rm = TRUE)),
+    rmse_t2m_era5land = sqrt(mean(err_t2m_era5land^2, na.rm = TRUE))
+  ) %>%
+  mutate(
+    bias_t2m_era5 = t2m_mf - t2m_era5,
+    bias_t2m_era5land = t2m_mf - t2m_era5land
+  )
+
+g1 <- ggplot(df_hourly_t2m, aes(x = hour)) +
+  geom_line(aes(y = bias_t2m_era5, color = "ERA5")) +
+  geom_line(aes(y = bias_t2m_era5land, color = "ERA5-Land")) +
+  labs(x = "Heure de la journée", y = "Biais de température (°C)", color = "Source") +
+  scale_x_continuous(breaks = 0:23) +
+  scale_color_manual(values = c("ERA5" = "#F8766D", "ERA5-Land" = "#00BA38")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 15, hjust = 1))
+
+g2 <- ggplot(df_hourly_t2m, aes(x = hour)) +
+  geom_line(aes(y = rmse_t2m_era5, color = "ERA5")) +
+  geom_line(aes(y = rmse_t2m_era5land, color = "ERA5-Land")) +
+  labs(x = "Heure de la journée", y = "RMSE température (°C)", color = "Source") +
+  scale_x_continuous(breaks = 0:23) +
+  scale_color_manual(values = c("ERA5" = "#F8766D", "ERA5-Land" = "#00BA38")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 15, hjust = 1))
+
+print(g1)
+print(g2)
+
+```
+
 
 # Comparaison des données pour les précipitations
 ```{r}
