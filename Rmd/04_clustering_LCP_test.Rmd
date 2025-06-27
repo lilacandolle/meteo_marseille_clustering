@@ -464,6 +464,21 @@ png(file.path(figpathGMM, "roses_GMM_plage_matin_DJF_ventfaible.png"), width = 2
 plot(roses_GMM_ventfaible, main = "Roses de concentration GMM Matin DJF Vent faible")
 dev.off()
 ```
+```{r}
+yearlystats_plage_matin_DJF_ventfaible <- plage_matin_DJF_ventfaible %>%
+  group_by(year = year(day), GMM) %>%
+  summarise(mean_CO2 = mean(CO2_dry_corr_cal, na.rm = TRUE),
+            sd_CO2 = sd(CO2_dry_corr_cal, na.rm = TRUE),
+            n = n()) %>%
+  ungroup()
+ggplot(yearlystats_plage_matin_DJF_ventfaible, aes(x = year, y = mean_CO2, color = GMM)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Moyenne du CO2 par année et par cluster GMM",
+       x = "Année", y = "Moyenne du CO2 (ppm)", color = "Cluster GMM") +
+  theme_minimal()
+```
+
 ### horaire total
 ```{r}
 sub_dir <- "hourly_matin_DJF/GMM/"
@@ -519,6 +534,86 @@ ggplot(yearlystats_hourly_matin_DJF_ventfaible, aes(x = year, y = mean_CO2, colo
        x = "Année", y = "Moyenne du CO2 (ppm)", color = "Cluster GMM") +
   theme_minimal()
 ```
+## 6.3 GMM avec ACP
+### Horaire, matin, DJF
+```{r}
+sub_dir <- "hourly_matin_DJF/GMM_ACP/"
+figpathGMM_ACP <- paste0(figpath, sub_dir)
+```
+```{r}
+temp <- hourly_matin_DJF_acp %>%
+  select(-date) # on enlève la colonne date pour le GMM
+gmm_model <- Mclust(temp, G = 8) # G le nombre de clusters souhaités
+summary(gmm_model)
+hourly_matin_DJF$GMM_acp <- gmm_model$classification
+plot_clustering_results(hourly_matin_DJF, 'GMM_acp', sub_dir = sub_dir, 'GMM_ACP_hourly_matin_DJF', vars_dict = vars_dict)
+```
+```{r}
+# roses de concentration
+hourly_matin_DJF$GMM_acp <- as.factor(hourly_matin_DJF$GMM_acp)
+roses_GMM_acp <- polarFreq(hourly_matin_DJF, pollutant = "CO2_dry_corr_cal", 
+                            type = "GMM_acp", statistic = "mean",
+                            main = "Roses de concentration GMM ACP Matin DJF", min.bin = 1)
+```
+```{r, eval = savefig}
+png(file.path(figpathGMM_ACP, "roses_GMM_ACP_hourly_matin_DJF.png"), width = 2000, height = 1500, res = 300)
+plot(roses_GMM_acp, main = "Roses de concentration GMM ACP Matin DJF")
+dev.off()
+```
+```{r}
+yearlystats_hourly_matin_DJF_acp <- hourly_matin_DJF %>%
+  group_by(year = year(date), GMM_acp) %>%
+  summarise(mean_CO2 = mean(CO2_dry_corr_cal, na.rm = TRUE),
+            sd_CO2 = sd(CO2_dry_corr_cal, na.rm = TRUE),
+            n = n()) %>%
+  ungroup()
+ggplot(yearlystats_hourly_matin_DJF_acp, aes(x = year, y = mean_CO2, color = GMM_acp)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Moyenne du CO2 par année et par cluster GMM ACP",
+       x = "Année", y = "Moyenne du CO2 (ppm)", color = "Cluster GMM ACP") +
+  theme_minimal()
+```
 
+### Horaire, matin, DJF, VF
+```{r}
+sub_dir <- "hourly_matin_DJF_ventfaible/GMM_ACP/"
+figpathGMM_ACP <- paste0(figpath, sub_dir)
+```
+```{r}
+temp <- hourly_matin_DJF_ventfaible_acp %>%
+  select(-date) # on enlève la colonne date pour le GMM
+gmm_model <- Mclust(temp, G = 6) # G le nombre de clusters souhaités
+summary(gmm_model)
+hourly_matin_DJF_ventfaible$GMM_acp <- gmm_model$classification
+plot_clustering_results(hourly_matin_DJF_ventfaible, 'GMM_acp', sub_dir = sub_dir, 'GMM_ACP_hourly_matin_DJF_ventfaible', vars_dict = vars_dict)
+```
 
+```{r}
+# roses de concentration
+hourly_matin_DJF_ventfaible$GMM_acp <- as.factor(hourly_matin_DJF_ventfaible$GMM_acp)
+roses_GMM_acp_ventfaible <- polarFreq(hourly_matin_DJF_ventfaible, pollutant = "CO2_dry_corr_cal", 
+                            type = "GMM_acp", statistic = "mean",
+                            main = "Roses de concentration GMM ACP Matin DJF Vent faible", min.bin = 1)
+```
+
+```{r, eval = savefig}
+png(file.path(figpathGMM_ACP, "roses_GMM_ACP_hourly_matin_DJF_ventfaible.png"), width = 2000, height = 1500, res = 300)
+plot(roses_GMM_acp_ventfaible, main = "Roses de concentration GMM ACP Matin DJF Vent faible")
+dev.off()
+```
+```{r}
+yearlystats_hourly_matin_DJF_ventfaible_acp <- hourly_matin_DJF_ventfaible %>%
+  group_by(year = year(date), GMM_acp) %>%
+  summarise(mean_CO2 = mean(CO2_dry_corr_cal, na.rm = TRUE),
+            sd_CO2 = sd(CO2_dry_corr_cal, na.rm = TRUE),
+            n = n()) %>%
+  ungroup()
+ggplot(yearlystats_hourly_matin_DJF_ventfaible_acp, aes(x = year, y = mean_CO2, color = GMM_acp)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Moyenne du CO2 par année et par cluster GMM ACP",
+       x = "Année", y = "Moyenne du CO2 (ppm)", color = "Cluster GMM ACP") +
+  theme_minimal()
+```
 
