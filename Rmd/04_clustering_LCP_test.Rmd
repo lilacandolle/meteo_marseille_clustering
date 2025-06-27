@@ -116,57 +116,71 @@ plage_matin_DJF_ventfaible <- plage_matin_DJF %>%
 ```{r}
 # on centre réduit sauf le CO2
 vars_clustering = c("t2m_ano", "relative_humidity", 
-         "surfacepressure", "ssrd", "windu", "windv", "ablh", "totalprecipitation")
+         "surfacepressure", "ssrd", "windu", "windv", "ablh")
 
 hourly_matin_DJF_scaled <- hourly_matin_DJF %>%
   select(all_of(vars_clustering)) %>%
   scale(center = TRUE, scale = TRUE) %>%
   as.data.frame()
 hourly_matin_DJF_scaled$date <- hourly_matin_DJF$date
+hourly_matin_DJF_scaled <- hourly_matin_DJF_scaled %>%
+  mutate(totalprecipitation = hourly_matin_DJF$totalprecipitation %>%
+           ifelse(. == 0, 0.01, .) %>%
+           log())
+
 
 hourly_matin_DJF_ventfaible_scaled <- hourly_matin_DJF_ventfaible %>%
   select(all_of(vars_clustering)) %>%
   scale(center = TRUE, scale = TRUE) %>%
   as.data.frame()
 hourly_matin_DJF_ventfaible_scaled$date <- hourly_matin_DJF_ventfaible$date
+hourly_matin_DJF_ventfaible_scaled <- hourly_matin_DJF_ventfaible_scaled %>%
+  mutate(totalprecipitation = hourly_matin_DJF_ventfaible$totalprecipitation %>%
+           ifelse(. == 0, 0.01, .) %>%
+           log())
+
 
 plage_matin_DJF_scaled <- plage_matin_DJF %>%
   select(all_of(vars_clustering)) %>%
   scale(center = TRUE, scale = TRUE) %>%
   as.data.frame()
 plage_matin_DJF_scaled$day <- plage_matin_DJF$day
+plage_matin_DJF_scaled <- plage_matin_DJF_scaled %>%
+  mutate(totalprecipitation = plage_matin_DJF$totalprecipitation %>%
+           ifelse(. == 0, 0.01, .) %>%
+           log())
 
 plage_matin_DJF_ventfaible_scaled <- plage_matin_DJF_ventfaible %>%
   select(all_of(vars_clustering)) %>%
   scale(center = TRUE, scale = TRUE) %>%
   as.data.frame()
 plage_matin_DJF_ventfaible_scaled$day <- plage_matin_DJF_ventfaible$day
+plage_matin_DJF_ventfaible_scaled <- plage_matin_DJF_ventfaible_scaled %>%
+  mutate(totalprecipitation = plage_matin_DJF_ventfaible$totalprecipitation %>%
+           ifelse(. == 0, 0.01, .) %>%
+           log())
 ```
 
 # 5) ACP
 ```{r}
 # pour plage tout
-hourly_matin_DJF_acp <- hourly_matin_DJF %>%
-  select(all_of(vars_clustering)) %>%
-  scale(center = TRUE, scale = TRUE) %>%
+hourly_matin_DJF_acp <- hourly_matin_DJF_scaled %>%
+  select(-date) %>%
   prcomp()
 
 # pour plage vent faible
-hourly_matin_DJF_ventfaible_acp <- hourly_matin_DJF_ventfaible %>%
-  select(all_of(vars_clustering)) %>%
-  scale(center = TRUE, scale = TRUE) %>%
+hourly_matin_DJF_ventfaible_acp <- hourly_matin_DJF_ventfaible_scaled %>%
+  select(-date) %>%
   prcomp()
 
 # pour plage tout
-plage_matin_DJF_acp <- plage_matin_DJF %>%
-  select(all_of(vars_clustering)) %>%
-  scale(center = TRUE, scale = TRUE) %>%
+plage_matin_DJF_acp <- plage_matin_DJF_scaled %>%
+  select(-day) %>%
   prcomp()
 
 # pour plage vent faible
-plage_matin_DJF_ventfaible_acp <- plage_matin_DJF_ventfaible %>%
-  select(all_of(vars_clustering)) %>%
-  scale(center = TRUE, scale = TRUE) %>%
+plage_matin_DJF_ventfaible_acp <- plage_matin_DJF_ventfaible_scaled %>%
+  select(-day) %>%
   prcomp()
 
 print(summary(hourly_matin_DJF_acp))
@@ -256,7 +270,8 @@ vars_dict <- list(
   windv = "Vent v",
   ablh = "Hauteur de la couche limite",
   wd = "Direction du vent",
-  ws = "Vitesse du vent"
+  ws = "Vitesse du vent",
+  totalprecipitation = "Précipitations totales"
 )
 ddff <- uv2ddff(plage_matin_DJF$windu, plage_matin_DJF$windv)
 plage_matin_DJF$wd <- ddff$dd
